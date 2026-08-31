@@ -1,6 +1,30 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Upload, ArrowLeft, FileSpreadsheet, Database, CheckCircle2, ArrowRight } from 'lucide-react';
+import { Upload, ArrowLeft, FileSpreadsheet, CheckCircle2, ArrowRight, Download } from 'lucide-react';
+
+// Columns the backend's lead importer maps (see POST /imports/leads `mapping`).
+// Header -> lead field: Email->email, First Name->firstName, Last Name->lastName,
+// Company->company, Title->title, Phone->phone, LinkedIn URL->linkedinUrl.
+const SAMPLE_COLUMNS = ['Email', 'First Name', 'Last Name', 'Company', 'Title', 'Phone', 'LinkedIn URL'];
+
+const SAMPLE_CSV = [
+  SAMPLE_COLUMNS.join(','),
+  'priya.nair@brightwave.io,Priya,Nair,Brightwave,VP Sales,+15550192834,https://linkedin.com/in/priya-nair',
+  'marcus.webb@orbit.inc,Marcus,Webb,Orbit Inc,Head of RevOps,+15559281123,https://linkedin.com/in/marcus-webb',
+  'dana.liu@northwind.co,Dana,Liu,Northwind,SDR Lead,+15554438899,https://linkedin.com/in/dana-liu'
+].join('\n');
+
+function downloadSampleCsv() {
+  const blob = new Blob([SAMPLE_CSV], { type: 'text/csv;charset=utf-8;' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'vetta-leads-import-sample.csv';
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(url);
+}
 
 export default function ImportLeads() {
   const navigate = useNavigate();
@@ -65,8 +89,48 @@ export default function ImportLeads() {
                   <Upload size={24} />
                 </div>
                 <h4 className="text-base font-bold text-slate-800 mb-1">Drag & drop your .csv file here</h4>
-                <p className="text-xs text-slate-500 max-w-sm mb-4">Supports CSV, XLSX with automatic field mapping for Name, Phone, LinkedIn, Company, and Title.</p>
+                <p className="text-xs text-slate-500 max-w-sm mb-4">Supports CSV with automatic field mapping for Email, Name, Phone, LinkedIn, Company, and Title.</p>
                 <span className="px-4 py-2 bg-white border border-slate-200 text-slate-700 font-semibold text-xs rounded-lg shadow-sm">Browse files</span>
+              </div>
+
+              {/* Format reference + sample download */}
+              <div className="rounded-xl border border-slate-200 bg-slate-50 p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <h5 className="text-sm font-bold text-slate-800 flex items-center">
+                      <FileSpreadsheet size={16} className="mr-2 text-indigo-600" />
+                      Expected format
+                    </h5>
+                    <p className="text-xs text-slate-500 mt-1">
+                      First row must be a header. <span className="font-semibold text-slate-600">Email</span> is
+                      required; other columns are optional and any extra columns are ignored.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={downloadSampleCsv}
+                    className="shrink-0 flex items-center space-x-2 px-3 py-2 bg-white border border-slate-200 text-slate-700 text-xs font-semibold rounded-lg shadow-sm hover:bg-slate-50 transition-colors"
+                  >
+                    <Download size={14} />
+                    <span>Sample .csv</span>
+                  </button>
+                </div>
+
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {SAMPLE_COLUMNS.map((col) => (
+                    <span
+                      key={col}
+                      className="inline-flex items-center px-2 py-1 rounded-md bg-white border border-slate-200 text-[11px] font-medium text-slate-600"
+                    >
+                      {col}
+                      {col === 'Email' && <span className="ml-1 text-rose-500">*</span>}
+                    </span>
+                  ))}
+                </div>
+
+                <pre className="mt-4 overflow-x-auto rounded-lg bg-slate-900 text-slate-100 text-[11px] leading-relaxed p-3">
+{SAMPLE_CSV}
+                </pre>
               </div>
 
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
