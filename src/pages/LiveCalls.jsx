@@ -1,94 +1,203 @@
-import React, { useState } from 'react';
-import { 
-  Phone, 
-  PhoneOff, 
-  Mic, 
-  MicOff, 
-  Activity, 
-  User, 
-  Building, 
-  MessageSquare,
-  Calendar
-} from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import { Phone, PhoneOff, Activity, User, Building, MessageSquare, RefreshCcw } from 'lucide-react';
+import { api, ApiError } from '../api';
+import { useAsync } from '../hooks/useAsync';
+import { ErrorState, Skeleton } from '../components/ui';
+import { humanize, relativeTime, personName, num, pct } from '../lib/format';
+
+const IN_FLIGHT = ['QUEUED', 'INITIATING', 'RINGING', 'CONNECTED', 'IN_PROGRESS'];
+
+const STATUS_COLOR = {
+  QUEUED: 'text-slate-500',
+  INITIATING: 'text-slate-500',
+  RINGING: 'text-orange-500',
+  CONNECTED: 'text-emerald-600',
+  IN_PROGRESS: 'text-emerald-600',
+  COMPLETED: 'text-slate-500',
+  FAILED: 'text-red-500',
+  NO_ANSWER: 'text-slate-500',
+  BUSY: 'text-orange-500',
+  VOICEMAIL: 'text-slate-500',
+  CANCELLED: 'text-red-500',
+  DO_NOT_CALL: 'text-red-500'
+};
+
+function Transcript({ callId }) {
+  const t = useAsync(() => api.voice.calls.transcript(callId), [callId]);
+  const turns = Array.isArray(t.data) ? t.data : t.data?.turns ?? [];
+
+  if (t.loading) return <Skeleton className="h-40 w-full" />;
+  if (t.error) return <ErrorState error={t.error} onRetry={t.reload} compact />;
+  if (turns.length === 0) return <p className="text-sm text-slate-400">No transcript turns yet.</p>;
+
+  return (
+    <div className="space-y-4">
+      {turns.map((turn, i) => {
+        const who = turn.speaker || turn.role || turn.from || 'agent';
+        const isAgent = /agent|assistant|ai|rep|bot/i.test(who);
+        const text = turn.text || turn.content || turn.message || '';
+        return (
+          <div key={i} className={`flex flex-col ${isAgent ? '' : 'items-end'}`}>
+            <span className={`text-xs font-semibold mb-1 ${isAgent ? 'text-indigo-600' : 'text-emerald-600'}`}>
+              {humanize(who)}
+            </span>
+            <p
+              className={`text-sm p-3 rounded-lg border max-w-[85%] text-slate-800 ${
+                isAgent
+                  ? 'bg-indigo-50 border-indigo-100 rounded-tl-none self-start'
+                  : 'bg-slate-100 border-slate-200 rounded-tr-none self-end'
+              }`}
+            >
+              {text}
+            </p>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
 
 export default function LiveCalls() {
-  const [isMuted, setIsMuted] = useState(false);
-  const [callActive, setCallActive] = useState(true); // Simulating an active bridged call
+  const voice = useAsync(() => api.analytics.dashboard.voice(), []);
+  const calls = useAsync(() => api.voice.calls.list({ page: 1, limit: 15 }), []);
+  const leadsById = useAsync(async () => {
+    const res = await api.leads.list({ page: 1, limit: 100 });
+    const map = {};
+    for (const l of res?.data ?? []) map[l.id] = l;
+    return map;
+  }, []);
+
+  const [endedIds, setEndedIds] = useState([]);
+  const [ending, setEnding] = useState(false);
+
+  const rows = (calls.data?.data ?? []).filter((c) => !endedIds.includes(c.id));
+  const leadMap = leadsById.data ?? {};
+  const v = voice.data ?? {};
+
+  const activeLines = useMemo(() => rows.filter((c) => IN_FLIGHT.includes(c.status)), [rows]);
+  const activeCall = useMemo(
+    () => rows.find((c) => c.status === 'CONNECTED' || c.status === 'IN_PROGRESS') || null,
+    [rows]
+  );
+
+  // Refresh call list periodically while the page is open.
+  const reloadCalls = calls.reload;
+  useEffect(() => {
+    const id = setInterval(reloadCalls, 15000);
+    return () => clearInterval(id);
+  }, [reloadCalls]);
+
+  const endCall = async (id) => {
+    if (!window.confirm('End this live call? This sends a real hang-up to the provider.')) return;
+    setEnding(true);
+    try {
+      await api.voice.calls.cancel(id);
+      setEndedIds((prev) => [...prev, id]);
+      calls.reload();
+    } catch (err) {
+      alert(err instanceof ApiError ? `Could not end call: ${err.message}` : 'Could not end call.');
+    } finally {
+      setEnding(false);
+    }
+  };
+
+  const callLabel = (c) => {
+    const lead = leadMap[c.leadId];
+    return personName(lead) !== '—' ? personName(lead) : c.toNumber || c.phoneNumber || 'Unknown';
+  };
 
   return (
     <div className="h-full flex flex-col space-y-6">
-      
       {/* Top Status Bar */}
       <div className="bg-slate-900 rounded-xl p-4 flex items-center justify-between shadow-lg">
         <div className="flex items-center space-x-4">
           <div className="flex items-center space-x-2">
             <span className="relative flex h-3 w-3">
-              <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-              <span className="relative inline-flex rounded-full h-3 w-3 bg-emerald-500"></span>
+              <span
+                className={`absolute inline-flex h-full w-full rounded-full opacity-75 ${
+                  activeLines.length ? 'animate-ping bg-emerald-400' : 'bg-slate-500'
+                }`}
+              />
+              <span
+                className={`relative inline-flex rounded-full h-3 w-3 ${
+                  activeLines.length ? 'bg-emerald-500' : 'bg-slate-500'
+                }`}
+              />
             </span>
-            <span className="text-emerald-400 font-semibold text-sm tracking-wide uppercase">System Active</span>
+            <span
+              className={`font-semibold text-sm tracking-wide uppercase ${
+                activeLines.length ? 'text-emerald-400' : 'text-slate-400'
+              }`}
+            >
+              {activeLines.length ? 'Lines Active' : 'Idle'}
+            </span>
           </div>
-          <div className="h-4 w-px bg-slate-700"></div>
-          <span className="text-slate-300 text-sm">Campaign: Q3 SaaS Founders</span>
+          <div className="h-4 w-px bg-slate-700" />
+          <span className="text-slate-300 text-sm">
+            {calls.loading ? 'Loading calls…' : `${rows.length} recent call${rows.length === 1 ? '' : 's'}`}
+          </span>
         </div>
-        
+
         <div className="flex items-center space-x-6 text-sm">
           <div className="flex flex-col items-end">
-            <span className="text-slate-400 text-xs">AI Dials Today</span>
-            <span className="text-white font-bold">1,240</span>
+            <span className="text-slate-400 text-xs">Calls Placed</span>
+            <span className="text-white font-bold">{voice.loading ? '—' : num(v.callsPlaced)}</span>
           </div>
           <div className="flex flex-col items-end">
-            <span className="text-slate-400 text-xs">Live Bridges</span>
-            <span className="text-white font-bold">312</span>
+            <span className="text-slate-400 text-xs">Answer Rate</span>
+            <span className="text-white font-bold">{voice.loading ? '—' : pct(v.answerRate)}</span>
+          </div>
+          <div className="flex flex-col items-end">
+            <span className="text-slate-400 text-xs">Failed</span>
+            <span className="text-white font-bold">{voice.loading ? '—' : num(v.failedCalls)}</span>
           </div>
         </div>
       </div>
 
       <div className="flex flex-1 gap-6 min-h-0">
-        
-        {/* Left Side: Parallel Dialer Status */}
+        {/* Left: Recent / active lines */}
         <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
           <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-            <h2 className="font-semibold text-slate-800">Active Lines</h2>
-            <span className="bg-indigo-100 text-indigo-700 text-xs font-bold px-2 py-1 rounded-md">Dialing x4</span>
+            <h2 className="font-semibold text-slate-800">Call Lines</h2>
+            <button onClick={calls.reload} className="text-slate-400 hover:text-slate-600">
+              <RefreshCcw size={15} />
+            </button>
           </div>
-          
-          <div className="p-2 overflow-y-auto flex-1 space-y-2">
-            {/* Active Dialing Item */}
-            <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 opacity-60">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-sm font-medium text-slate-700">Line 1</span>
-                <span className="text-xs font-semibold text-orange-500">Ringing...</span>
-              </div>
-              <p className="text-xs text-slate-500">Alex Mercer • Acme Corp</p>
-            </div>
 
-            {/* Voicemail Detected Item */}
-            <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 opacity-60">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-sm font-medium text-slate-700">Line 2</span>
-                <span className="text-xs font-semibold text-slate-500">Voicemail Drop</span>
+          <div className="p-2 overflow-y-auto flex-1 space-y-2">
+            {calls.loading &&
+              Array.from({ length: 5 }).map((_, i) => <Skeleton key={i} className="h-16 w-full" />)}
+
+            {calls.error && (
+              <div className="p-2">
+                <ErrorState error={calls.error} onRetry={calls.reload} compact />
               </div>
-              <p className="text-xs text-slate-500">Sarah Jenkins • TechFlow</p>
-            </div>
-            
-            {/* Dead Number Item */}
-            <div className="p-3 border border-slate-200 rounded-lg bg-slate-50 opacity-60">
-              <div className="flex justify-between items-center mb-1">
-                <span className="text-sm font-medium text-slate-700">Line 3</span>
-                <span className="text-xs font-semibold text-red-500">Failed / Disconnected</span>
+            )}
+
+            {!calls.loading && !calls.error && rows.length === 0 && (
+              <p className="text-sm text-slate-400 text-center py-8">No recent calls.</p>
+            )}
+
+            {rows.map((c) => (
+              <div key={c.id} className="p-3 border border-slate-200 rounded-lg bg-slate-50">
+                <div className="flex justify-between items-center mb-1">
+                  <span className="text-sm font-medium text-slate-700 truncate">{callLabel(c)}</span>
+                  <span className={`text-xs font-semibold ${STATUS_COLOR[c.status] || 'text-slate-500'}`}>
+                    {humanize(c.status)}
+                  </span>
+                </div>
+                <p className="text-xs text-slate-500">
+                  {leadMap[c.leadId]?.company || c.toNumber || c.phoneNumber || '—'} · {relativeTime(c.createdAt)}
+                </p>
               </div>
-              <p className="text-xs text-slate-500">David Kim • Global Solutions</p>
-            </div>
+            ))}
           </div>
         </div>
 
-        {/* Right Side: Active Bridged Call & Screen-Pop */}
+        {/* Right: Active bridged call */}
         <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden">
-          
-          {callActive ? (
+          {activeCall ? (
             <>
-              {/* Screen Pop Header */}
               <div className="p-6 border-b border-slate-200 bg-gradient-to-r from-indigo-50 to-white flex justify-between items-start">
                 <div className="flex space-x-4 items-start">
                   <div className="h-12 w-12 rounded-full bg-indigo-600 flex items-center justify-center shrink-0 shadow-md">
@@ -96,100 +205,70 @@ export default function LiveCalls() {
                   </div>
                   <div>
                     <div className="flex items-center space-x-2">
-                      <h2 className="text-xl font-bold text-slate-900">Priya Nair</h2>
+                      <h2 className="text-xl font-bold text-slate-900">{callLabel(activeCall)}</h2>
                       <span className="bg-red-100 text-red-700 text-xs font-bold px-2 py-0.5 rounded animate-pulse flex items-center">
-                        <Activity size={12} className="mr-1"/> LIVE
+                        <Activity size={12} className="mr-1" /> {humanize(activeCall.status)}
                       </span>
-                      <span className="text-slate-500 text-sm font-medium">02:14</span>
                     </div>
                     <div className="flex items-center space-x-4 mt-1 text-sm text-slate-600">
-                      <span className="flex items-center"><Building size={14} className="mr-1"/> VP Sales at Brightwave</span>
+                      <span className="flex items-center">
+                        <Building size={14} className="mr-1" />
+                        {leadMap[activeCall.leadId]?.company || activeCall.toNumber || '—'}
+                      </span>
+                      <span>Started {relativeTime(activeCall.createdAt)}</span>
                     </div>
                   </div>
                 </div>
 
-                {/* Call Controls */}
-                <div className="flex space-x-2">
-                  <button 
-                    onClick={() => setIsMuted(!isMuted)}
-                    className={`p-3 rounded-full border shadow-sm transition-colors ${isMuted ? 'bg-red-50 text-red-600 border-red-200' : 'bg-white text-slate-600 border-slate-200 hover:bg-slate-50'}`}
-                  >
-                    {isMuted ? <MicOff size={20} /> : <Mic size={20} />}
-                  </button>
-                  <button 
-                    onClick={() => setCallActive(false)}
-                    className="p-3 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition-colors"
-                  >
-                    <PhoneOff size={20} />
-                  </button>
-                </div>
+                <button
+                  onClick={() => endCall(activeCall.id)}
+                  disabled={ending}
+                  className="p-3 rounded-full bg-red-600 text-white shadow-md hover:bg-red-700 transition-colors disabled:opacity-50"
+                  title="End call"
+                >
+                  <PhoneOff size={20} />
+                </button>
               </div>
 
               <div className="flex-1 flex overflow-hidden">
-                {/* AI Research & Briefing Panel */}
                 <div className="w-1/2 p-6 border-r border-slate-200 overflow-y-auto bg-slate-50">
                   <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 flex items-center">
-                    <MessageSquare size={16} className="mr-2 text-indigo-600" /> 
-                    AI Briefing
+                    <MessageSquare size={16} className="mr-2 text-indigo-600" />
+                    Call Details
                   </h3>
-                  
-                  <div className="space-y-4">
-                    <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
-                      <p className="text-xs text-slate-500 font-semibold uppercase mb-1">Why Now?</p>
-                      <p className="text-sm text-slate-800">Brightwave just raised $12M Series A and is actively hiring 6 new SDRs on LinkedIn.</p>
-                    </div>
-                    
-                    <div className="bg-indigo-50 p-4 rounded-lg border border-indigo-100 shadow-sm">
-                      <p className="text-xs text-indigo-600 font-semibold uppercase mb-1">Suggested Opening</p>
-                      <p className="text-sm text-indigo-900 font-medium">"Hey Priya, saw the Series A and the push to hire 6 SDRs. Are you ramping them on manual dialing, or looking to automate?"</p>
-                    </div>
+                  <div className="space-y-3">
+                    {[
+                      ['Status', humanize(activeCall.status)],
+                      ['Lead', personName(leadMap[activeCall.leadId])],
+                      ['Company', leadMap[activeCall.leadId]?.company || '—'],
+                      ['Campaign', activeCall.campaignId || '—'],
+                      ['Number', activeCall.toNumber || activeCall.phoneNumber || '—']
+                    ].map(([label, value]) => (
+                      <div key={label} className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm">
+                        <p className="text-xs text-slate-500 font-semibold uppercase mb-0.5">{label}</p>
+                        <p className="text-sm text-slate-800 truncate">{value}</p>
+                      </div>
+                    ))}
                   </div>
-                  
-                  <button className="w-full mt-6 flex items-center justify-center space-x-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm">
-                    <Calendar size={18} />
-                    <span>Book Meeting</span>
-                  </button>
                 </div>
 
-                {/* Live Transcript Panel */}
                 <div className="w-1/2 p-6 overflow-y-auto bg-white flex flex-col">
                   <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">Live Transcript</h3>
-                  
-                  <div className="flex-1 space-y-4">
-                    <div className="flex flex-col">
-                      <span className="text-xs font-semibold text-indigo-600 mb-1">You</span>
-                      <p className="text-sm bg-indigo-50 p-3 rounded-lg rounded-tl-none border border-indigo-100 self-start text-slate-800">
-                        Hi Priya, this is Gaurav. I noticed Brightwave is scaling up the sales team.
-                      </p>
-                    </div>
-                    
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-semibold text-emerald-600 mb-1">Priya Nair</span>
-                      <p className="text-sm bg-slate-100 p-3 rounded-lg rounded-tr-none border border-slate-200 self-end text-slate-800">
-                        Yeah, timing's actually pretty good, we're scaling fast after the round. Who did you say you were with?
-                      </p>
-                    </div>
-
-                    <div className="flex flex-col items-end">
-                      <span className="text-xs font-semibold text-emerald-600 mb-1">Priya Nair</span>
-                      <p className="text-sm bg-slate-100 p-3 rounded-lg rounded-tr-none border border-slate-200 self-end text-slate-500 italic flex items-center">
-                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce mr-1"></span>
-                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce mr-1" style={{ animationDelay: '150ms' }}></span>
-                        <span className="h-1.5 w-1.5 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }}></span>
-                      </p>
-                    </div>
-                  </div>
+                  <Transcript callId={activeCall.id} />
                 </div>
               </div>
             </>
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-50">
               <Phone size={48} className="text-slate-300 mb-4" />
-              <p className="text-lg font-medium text-slate-600">Waiting for next live connection...</p>
-              <p className="text-sm mt-2">AI is parallel dialing 4 lines in the background.</p>
+              <p className="text-lg font-medium text-slate-600">No live connection right now</p>
+              <p className="text-sm mt-2">
+                {activeLines.length
+                  ? `${activeLines.length} line${activeLines.length === 1 ? '' : 's'} dialing…`
+                  : 'Start a voice call to bridge a live conversation here.'}
+              </p>
             </div>
           )}
-          
         </div>
       </div>
     </div>
