@@ -25,28 +25,30 @@ export function AuthProvider({ children }) {
   const [status, setStatus] = useState(
     tokenStore.isAuthenticated() ? 'loading' : 'unauthenticated',
   );
-  const hydratedRef = useRef(false);
 
-  // Hydrate the current user from the stored token exactly once.
+  // Hydrate the current user from the stored token. Re-runs safely under
+  // StrictMode's mount/unmount/remount: a `runId` guard makes only the latest
+  // invocation allowed to commit state, so a superseded run never wins or hangs.
+  const runIdRef = useRef(0);
   useEffect(() => {
-    if (hydratedRef.current) return;
-    hydratedRef.current = true;
+    const runId = ++runIdRef.current;
+    const current = () => runId === runIdRef.current;
 
     if (!tokenStore.isAuthenticated()) {
       setStatus('unauthenticated');
       return;
     }
 
-    let cancelled = false;
+    setStatus('loading');
     (async () => {
       try {
         const me = await api.auth.me();
-        if (cancelled) return;
+        if (!current()) return;
         tokenStore.setUser(me);
         setUser(me);
         setStatus('authenticated');
       } catch (err) {
-        if (cancelled) return;
+        if (!current()) return;
         if (err instanceof ApiError && err.statusCode === 401) {
           tokenStore.clear();
           setUser(null);
@@ -59,7 +61,8 @@ export function AuthProvider({ children }) {
     })();
 
     return () => {
-      cancelled = true;
+      // Invalidate this run; the remount's run will re-fetch and commit.
+      runIdRef.current += 1;
     };
   }, []);
 
