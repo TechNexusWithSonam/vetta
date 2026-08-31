@@ -2,6 +2,10 @@
  * Run an async function on mount (and whenever `deps` change) and expose
  * `{ data, error, loading, reload }`. Errors are normalized to `ApiError`.
  *
+ * `loading` is derived: it stays `true` (and `data`/`error` read as empty)
+ * whenever the resolved result does not belong to the current `deps` — so a
+ * stale result from a previous key is never reported as "loaded".
+ *
  * @template T
  * @param {() => Promise<T>} fn
  * @param {ReadonlyArray<unknown>} [deps]
@@ -10,38 +14,51 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError } from '../api';
 
-export function useAsync(fn, deps = []) {
-  const [state, setState] = useState({ data: undefined, error: null, loading: true });
-  const fnRef = useRef(fn);
-  fnRef.current = fn;
-  const callId = useRef(0);
+const toError = (err) =>
+  err instanceof ApiError
+    ? err
+    : new ApiError({ statusCode: 0, message: err?.message || 'Request failed', kind: 'network' });
 
+function depsKey(deps) {
+  return deps
+    .map((d) => (d !== null && typeof d === 'object' ? JSON.stringify(d) : String(d)))
+    .join('|');
+}
+
+export function useAsync(fn, deps = []) {
+  const key = depsKey(deps);
+  const [state, setState] = useState({ data: undefined, error: null, key: null });
+
+  // Hold the latest callback without making it a dependency of `run`.
+  const fnRef = useRef(fn);
+  useEffect(() => {
+    fnRef.current = fn;
+  });
+
+  // Starts a fetch for the current key and returns a cancel fn (so a superseded
+  // run never commits). Note: no synchronous setState here.
   const run = useCallback(() => {
-    const id = ++callId.current;
-    setState((s) => ({ ...s, loading: true, error: null }));
+    let cancelled = false;
     Promise.resolve()
       .then(() => fnRef.current())
       .then((data) => {
-        if (id === callId.current) setState({ data, error: null, loading: false });
+        if (!cancelled) setState({ data, error: null, key });
       })
       .catch((err) => {
-        if (id !== callId.current) return;
-        const error =
-          err instanceof ApiError
-            ? err
-            : new ApiError({ statusCode: 0, message: err?.message || 'Request failed', kind: 'network' });
-        setState({ data: undefined, error, loading: false });
+        if (!cancelled) setState({ data: undefined, error: toError(err), key });
       });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, deps);
-
-  useEffect(() => {
-    run();
     return () => {
-      // Invalidate any in-flight result from this effect.
-      callId.current += 1;
+      cancelled = true;
     };
-  }, [run]);
+  }, [key]);
 
-  return { ...state, reload: run };
+  useEffect(() => run(), [run]);
+
+  const fresh = state.key === key;
+  return {
+    data: fresh ? state.data : undefined,
+    error: fresh ? state.error : null,
+    loading: !fresh,
+    reload: run
+  };
 }

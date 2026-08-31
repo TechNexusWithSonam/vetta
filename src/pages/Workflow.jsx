@@ -183,6 +183,11 @@ export default function Workflow() {
               </div>
             ) : detail.error ? (
               <ErrorState error={detail.error} onRetry={detail.reload} />
+            ) : !campaign ? (
+              <div className="max-w-2xl mx-auto space-y-4">
+                <Skeleton className="h-24 w-full" />
+                <Skeleton className="h-40 w-full" />
+              </div>
             ) : (
               <div className="max-w-2xl mx-auto space-y-6">
                 {/* Script */}

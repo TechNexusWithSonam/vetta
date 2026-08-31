@@ -224,6 +224,11 @@ export default function Research() {
             <div className="p-6">
               <ErrorState error={detail.error} onRetry={detail.reload} />
             </div>
+          ) : !job ? (
+            <div className="p-6 space-y-4">
+              <Skeleton className="h-16 w-full" />
+              <Skeleton className="h-40 w-full" />
+            </div>
           ) : (
             <>
               <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-start justify-between">

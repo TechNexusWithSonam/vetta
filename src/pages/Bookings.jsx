@@ -149,6 +149,11 @@ export default function Bookings() {
             <div className="p-6">
               <ErrorState error={detail.error} onRetry={detail.reload} />
             </div>
+          ) : !m ? (
+            <div className="p-6 space-y-4">
+              <Skeleton className="h-20 w-full" />
+              <Skeleton className="h-48 w-full" />
+            </div>
           ) : (
             <>
               <div className="p-6 border-b border-slate-200 bg-slate-50">
