@@ -7,10 +7,11 @@
  *
  * Resolution order:
  *  1. `VITE_API_BASE_URL` if set (see `.env.example`).
- *  2. In the Vite dev server: `/api` — a same-origin path that `vite.config.js`
- *     proxies to the backend, sidestepping the backend's `localhost:3000`-only
- *     CORS policy.
- *  3. Otherwise (production build, Node tooling): the hosted backend URL.
+ *  2. In any Vite build (dev server *or* production): `/api` — a same-origin
+ *     path proxied to the backend. In dev that proxy lives in `vite.config.js`;
+ *     in production it's a rewrite in `vercel.json`. Both sidestep the backend's
+ *     restrictive CORS policy (no cross-origin request, no preflight).
+ *  3. Otherwise (plain Node tooling, tests): the hosted backend URL directly.
  */
 
 const HOSTED_BASE_URL = 'https://vetta-backend.vercel.app';
@@ -19,7 +20,8 @@ const HOSTED_BASE_URL = 'https://vetta-backend.vercel.app';
 // module also loads under plain Node (tooling, tests).
 const env = (typeof import.meta !== 'undefined' && import.meta.env) || {};
 
-const DEFAULT_BASE_URL = env.DEV ? '/api' : HOSTED_BASE_URL;
+// `DEV` or `PROD` is always set inside a Vite bundle; neither is set under Node.
+const DEFAULT_BASE_URL = env.DEV || env.PROD ? '/api' : HOSTED_BASE_URL;
 
 /** Base URL with any trailing slash removed. */
 export const API_BASE_URL = String(env.VITE_API_BASE_URL || DEFAULT_BASE_URL).replace(

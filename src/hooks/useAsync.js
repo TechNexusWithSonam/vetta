@@ -35,11 +35,12 @@ export function useAsync(fn, deps = []) {
     fnRef.current = fn;
   });
 
-  // Starts a fetch for the current key and returns a cancel fn (so a superseded
-  // run never commits). Note: no synchronous setState here.
+  // Starts a fetch for the current key. Returns a Promise (so callers can await
+  // `reload()`) with a `.cancel()` so a superseded run never commits.
+  // Note: no synchronous setState here.
   const run = useCallback(() => {
     let cancelled = false;
-    Promise.resolve()
+    const p = Promise.resolve()
       .then(() => fnRef.current())
       .then((data) => {
         if (!cancelled) setState({ data, error: null, key });
@@ -47,12 +48,16 @@ export function useAsync(fn, deps = []) {
       .catch((err) => {
         if (!cancelled) setState({ data: undefined, error: toError(err), key });
       });
-    return () => {
+    p.cancel = () => {
       cancelled = true;
     };
+    return p;
   }, [key]);
 
-  useEffect(() => run(), [run]);
+  useEffect(() => {
+    const p = run();
+    return () => p.cancel();
+  }, [run]);
 
   const fresh = state.key === key;
   return {

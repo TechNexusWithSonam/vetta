@@ -86,6 +86,7 @@ function ResultView({ result }) {
 export default function Research() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
+  const [refreshing, setRefreshing] = useState(false);
 
   const jobs = useAsync(() => api.research.list({ page: 1, limit: 50 }), []);
   const leadsById = useAsync(async () => {
@@ -119,6 +120,11 @@ export default function Research() {
     () => (activeId ? api.research.providerLogs(activeId).catch(() => []) : Promise.resolve([])),
     [activeId]
   );
+
+  const refreshJobs = () => {
+    setRefreshing(true);
+    Promise.allSettled([jobs.reload(), leadsById.reload()]).finally(() => setRefreshing(false));
+  };
 
   const job = detail.data;
   const jobLead = job ? leadMap[job.leadId] : null;
@@ -156,8 +162,13 @@ export default function Research() {
         <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
           <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
             <h3 className="font-semibold text-slate-800">Research Jobs</h3>
-            <button onClick={jobs.reload} className="text-slate-400 hover:text-slate-600">
-              <RefreshCcw size={15} />
+            <button
+              onClick={refreshJobs}
+              disabled={refreshing}
+              title="Refresh"
+              className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+            >
+              <RefreshCcw size={15} className={refreshing ? 'animate-spin' : ''} />
             </button>
           </div>
 
