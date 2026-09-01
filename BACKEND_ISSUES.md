@@ -105,6 +105,41 @@ curl -s -X POST https://vetta-backend.vercel.app/campaign-templates \
 
 ---
 
+### 3b. Async workers don't run on the deployment — research/import/campaign jobs never leave `PENDING`
+
+**Repro**
+
+```bash
+# POST /research {leadId, type:"COMPANY_RESEARCH"} -> 201, status PENDING
+# then poll GET /research/:id for 60s:
+#   t+5s..t+60s   status=PENDING  provider=null  model=null  attempts=0  errorMessage=null
+```
+
+**Expected:** a BullMQ worker picks up the job, calls Claude, and writes
+`status: COMPLETED`, `provider`, `model`, and `result` (`companySummary`,
+`painPoints`, `callAngle`, `confidenceScore`, …). `GET /research/cost-analytics`
+then shows non-zero spend.
+
+**Actual:** the job sits in `PENDING` **forever** — `attempts` stays `0`,
+`provider`/`model` stay `null`, `result` stays `null`, and it never goes
+`COMPLETED` **or** `FAILED`. `cost-analytics` stays `$0`. Same for lead imports
+(`POST /imports/leads`) and the campaign pipeline stages.
+
+**Root cause:** Vercel serverless functions are request-scoped — there is no
+long-running process to run the BullMQ consumers. The API enqueues jobs that
+nothing drains.
+
+**Fix:** run the worker(s) as a separate always-on service (a container / VM /
+Vercel background function / Railway etc.) pointed at the same Redis, or switch
+those endpoints to synchronous processing for the serverless deployment.
+
+**Frontend impact:** the AI Research page can start jobs and polls them, but they
+never complete on this deployment, so no `result` is ever shown and research cost
+stays `$0`. Call Strategy (which needs a `COMPLETED` research job) is therefore
+unreachable end-to-end.
+
+---
+
 ### 4. `GET /health` → 503 on the deployment
 
 **Repro**

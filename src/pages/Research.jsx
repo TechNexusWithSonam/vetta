@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import {
   BrainCircuit,
   Search,
@@ -6,9 +6,11 @@ import {
   User,
   RefreshCcw,
   Loader2,
-  AlertTriangle
+  AlertTriangle,
+  Play,
+  RotateCcw
 } from 'lucide-react';
-import { api } from '../api';
+import { api, ApiError } from '../api';
 import { useAsync } from '../hooks/useAsync';
 import { ErrorState, EmptyState, Skeleton } from '../components/ui';
 import { humanize, relativeTime, personName, initials, money, num } from '../lib/format';
@@ -20,65 +22,86 @@ const STATUS_STYLES = {
   COMPLETED: 'bg-emerald-100 text-emerald-700',
   FAILED: 'bg-rose-100 text-rose-700'
 };
+const NON_TERMINAL = ['PENDING', 'RUNNING', 'PROCESSING', 'QUEUED'];
+const asPct = (v) => (v == null ? null : Math.round(Number(v) <= 1 ? Number(v) * 100 : Number(v)));
 
-function ResultView({ result }) {
-  if (result == null) return <p className="text-sm text-slate-500">No result payload yet.</p>;
+function Section({ title, children }) {
+  return (
+    <div>
+      <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">{title}</h4>
+      <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{children}</p>
+    </div>
+  );
+}
+
+function ResultView({ result, status }) {
+  if (result == null) {
+    return (
+      <p className="text-sm text-slate-500">
+        {NON_TERMINAL.includes(status)
+          ? 'Waiting for the AI worker to finish…'
+          : 'No result payload was written for this job.'}
+      </p>
+    );
+  }
   if (typeof result === 'string') {
     return <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{result}</p>;
   }
-  // Object — surface common sections if present, otherwise pretty-print.
-  const known = ['summary', 'signals', 'triggers', 'persona', 'angle', 'recommendedAngle', 'tokens'];
-  const hasKnown = known.some((k) => k in result);
-  if (!hasKnown) {
+
+  const summary = result.companySummary || result.summary;
+  const painPoints = result.painPoints || result.pains;
+  const angle = result.callAngle || result.angle || result.recommendedAngle;
+  const score = asPct(result.confidenceScore ?? result.confidence);
+  const anyKnown =
+    summary || (Array.isArray(painPoints) && painPoints.length) || angle || score != null;
+
+  if (!anyKnown) {
     return (
       <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto">
         {JSON.stringify(result, null, 2)}
       </pre>
     );
   }
+
   return (
     <div className="space-y-4">
-      {result.summary && (
-        <div>
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-1">Summary</h4>
-          <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap">{result.summary}</p>
+      {score != null && (
+        <div className="flex items-center space-x-3">
+          <div className="text-2xl font-bold text-indigo-600">
+            {score}
+            <span className="text-sm text-slate-400">/100</span>
+          </div>
+          <div className="flex-1 h-2 rounded-full bg-slate-100 overflow-hidden">
+            <div className="h-full bg-indigo-600" style={{ width: `${Math.max(0, Math.min(100, score))}%` }} />
+          </div>
+          <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">Confidence</span>
         </div>
       )}
-      {(result.angle || result.recommendedAngle) && (
-        <div className="border border-indigo-100 bg-indigo-50/50 rounded-xl p-4">
-          <h4 className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-1">Recommended Angle</h4>
-          <p className="text-sm text-indigo-900">{result.angle || result.recommendedAngle}</p>
-        </div>
-      )}
-      {Array.isArray(result.signals || result.triggers) && (
+      {summary && <Section title="Company Summary">{summary}</Section>}
+      {Array.isArray(painPoints) && painPoints.length > 0 && (
         <div>
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Signals</h4>
+          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Pain Points</h4>
           <ul className="space-y-1.5">
-            {(result.signals || result.triggers).map((s, i) => (
+            {painPoints.map((p, i) => (
               <li key={i} className="text-sm text-slate-700">
-                • {typeof s === 'string' ? s : JSON.stringify(s)}
+                • {typeof p === 'string' ? p : p?.label || p?.text || JSON.stringify(p)}
               </li>
             ))}
           </ul>
         </div>
       )}
-      {result.tokens && (
-        <div>
-          <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Personalization Tokens</h4>
-          <div className="overflow-hidden border border-slate-200 rounded-lg">
-            <table className="min-w-full divide-y divide-slate-200 text-sm">
-              <tbody className="divide-y divide-slate-200 bg-white">
-                {Object.entries(result.tokens).map(([k, v]) => (
-                  <tr key={k}>
-                    <td className="px-4 py-2 font-mono text-xs text-indigo-600">{`{{${k}}}`}</td>
-                    <td className="px-4 py-2 text-slate-600">{String(v)}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+      {angle && (
+        <div className="border border-indigo-100 bg-indigo-50/50 rounded-xl p-4">
+          <h4 className="text-xs font-bold text-indigo-700 uppercase tracking-wider mb-1">Recommended Call Angle</h4>
+          <p className="text-sm text-indigo-900">{angle}</p>
         </div>
       )}
+      <details className="text-xs text-slate-500">
+        <summary className="cursor-pointer select-none">Raw payload</summary>
+        <pre className="mt-2 bg-slate-900 text-slate-100 rounded-lg p-4 overflow-x-auto">
+          {JSON.stringify(result, null, 2)}
+        </pre>
+      </details>
     </div>
   );
 }
@@ -87,17 +110,22 @@ export default function Research() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
   const [refreshing, setRefreshing] = useState(false);
+  const [startLeadId, setStartLeadId] = useState('');
+  const [starting, setStarting] = useState(false);
+  const [startError, setStartError] = useState('');
+  const [retrying, setRetrying] = useState(false);
 
   const jobs = useAsync(() => api.research.list({ page: 1, limit: 50 }), []);
-  const leadsById = useAsync(async () => {
-    const res = await api.leads.list({ page: 1, limit: 100 });
-    const map = {};
-    for (const l of res?.data ?? []) map[l.id] = l;
-    return map;
-  }, []);
+  const leads = useAsync(() => api.leads.list({ page: 1, limit: 100 }), []);
+  const cost = useAsync(() => api.research.costAnalytics().catch(() => null), []);
 
   const jobRows = useMemo(() => jobs.data?.data ?? [], [jobs.data]);
-  const leadMap = useMemo(() => leadsById.data ?? {}, [leadsById.data]);
+  const leadList = useMemo(() => leads.data?.data ?? [], [leads.data]);
+  const leadMap = useMemo(() => {
+    const m = {};
+    for (const l of leadList) m[l.id] = l;
+    return m;
+  }, [leadList]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -109,7 +137,6 @@ export default function Research() {
     });
   }, [jobRows, leadMap, search]);
 
-  // Effective selection without a state-syncing effect.
   const activeId = selectedId ?? jobRows[0]?.id ?? null;
 
   const detail = useAsync(
@@ -121,11 +148,6 @@ export default function Research() {
     [activeId]
   );
 
-  const refreshJobs = () => {
-    setRefreshing(true);
-    Promise.allSettled([jobs.reload(), leadsById.reload()]).finally(() => setRefreshing(false));
-  };
-
   const job = detail.data;
   const jobLead = job ? leadMap[job.leadId] : null;
   const logs = Array.isArray(providerLogs.data) ? providerLogs.data : [];
@@ -135,6 +157,57 @@ export default function Research() {
     0
   );
 
+  const reloadDetail = detail.reload;
+  const jobStatus = job?.status;
+
+  // Auto-poll a non-terminal job every 5s until it finishes.
+  useEffect(() => {
+    if (!jobStatus || !NON_TERMINAL.includes(jobStatus)) return undefined;
+    const id = setInterval(() => reloadDetail(), 5000);
+    return () => clearInterval(id);
+  }, [jobStatus, reloadDetail]);
+
+  const refreshJobs = () => {
+    setRefreshing(true);
+    Promise.allSettled([jobs.reload(), leads.reload(), cost.reload()]).finally(() => setRefreshing(false));
+  };
+
+  const startResearch = async () => {
+    if (!startLeadId || starting) return;
+    setStarting(true);
+    setStartError('');
+    try {
+      const created = await api.research.start({ leadId: startLeadId, type: 'COMPANY_RESEARCH' });
+      setStartLeadId('');
+      await jobs.reload();
+      if (created?.id) setSelectedId(created.id);
+    } catch (err) {
+      setStartError(
+        err instanceof ApiError
+          ? Array.isArray(err.body?.message)
+            ? err.body.message.join(', ')
+            : err.message
+          : 'Could not start research.'
+      );
+    } finally {
+      setStarting(false);
+    }
+  };
+
+  const retryJob = async () => {
+    if (!activeId || retrying) return;
+    setRetrying(true);
+    try {
+      await api.research.retry(activeId);
+      reloadDetail();
+      jobs.reload();
+    } catch (err) {
+      alert(err instanceof ApiError ? `Retry failed: ${err.message}` : 'Retry failed.');
+    } finally {
+      setRetrying(false);
+    }
+  };
+
   return (
     <div className="h-full flex flex-col space-y-6 max-w-7xl mx-auto w-full">
       {/* Header */}
@@ -143,6 +216,11 @@ export default function Research() {
           <h2 className="text-2xl font-bold text-slate-900">AI Intelligence</h2>
           <p className="text-sm text-slate-500 mt-1">
             AI research jobs, provider runs, and generated summaries.
+            {cost.data && (
+              <span className="ml-2 text-slate-400">
+                · {money(cost.data.totalCostUsd ?? cost.data.totalCost ?? 0)} spent (30d)
+              </span>
+            )}
           </p>
         </div>
         <div className="relative w-72">
@@ -160,16 +238,47 @@ export default function Research() {
       <div className="flex flex-1 gap-6 min-h-0">
         {/* Left: Job Queue */}
         <div className="w-80 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col overflow-hidden shrink-0">
-          <div className="p-4 border-b border-slate-200 bg-slate-50 flex items-center justify-between">
-            <h3 className="font-semibold text-slate-800">Research Jobs</h3>
-            <button
-              onClick={refreshJobs}
-              disabled={refreshing}
-              title="Refresh"
-              className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
-            >
-              <RefreshCcw size={15} className={refreshing ? 'animate-spin' : ''} />
-            </button>
+          {/* Start research */}
+          <div className="p-4 border-b border-slate-200 bg-slate-50 space-y-2">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-slate-800">Research Jobs</h3>
+              <button
+                onClick={refreshJobs}
+                disabled={refreshing}
+                title="Refresh"
+                className="text-slate-400 hover:text-slate-600 disabled:opacity-50"
+              >
+                <RefreshCcw size={15} className={refreshing ? 'animate-spin' : ''} />
+              </button>
+            </div>
+            <div className="flex gap-2">
+              <select
+                value={startLeadId}
+                onChange={(e) => setStartLeadId(e.target.value)}
+                disabled={leads.loading || starting}
+                className="flex-1 min-w-0 border border-slate-200 rounded-md py-1.5 px-2 text-xs text-slate-600 focus:ring-indigo-500 focus:border-indigo-500"
+              >
+                <option value="">
+                  {leads.loading ? 'Loading leads…' : leadList.length ? 'Pick a lead…' : 'No leads yet'}
+                </option>
+                {leadList.map((l) => (
+                  <option key={l.id} value={l.id}>
+                    {l.company ? `${l.company} — ` : ''}
+                    {personName(l)}
+                  </option>
+                ))}
+              </select>
+              <button
+                onClick={startResearch}
+                disabled={!startLeadId || starting}
+                title="Start company research"
+                className="shrink-0 flex items-center space-x-1 px-2.5 py-1.5 bg-indigo-600 text-white text-xs font-semibold rounded-md hover:bg-indigo-700 transition-colors disabled:opacity-50"
+              >
+                {starting ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />}
+                <span>Start</span>
+              </button>
+            </div>
+            {startError && <p className="text-[11px] text-rose-600">{startError}</p>}
           </div>
 
           <div className="overflow-y-auto flex-1 divide-y divide-slate-100">
@@ -188,7 +297,7 @@ export default function Research() {
             )}
 
             {!jobs.loading && !jobs.error && filtered.length === 0 && (
-              <EmptyState icon={BrainCircuit} title="No research jobs" hint="Start research on a lead to see it here." />
+              <EmptyState icon={BrainCircuit} title="No research jobs" hint="Pick a lead above and hit Start." />
             )}
 
             {filtered.map((j) => {
@@ -264,7 +373,7 @@ export default function Research() {
                       STATUS_STYLES[job.status] || 'bg-slate-100 text-slate-600'
                     }`}
                   >
-                    {job.status === 'PENDING' || job.status === 'RUNNING' ? (
+                    {NON_TERMINAL.includes(job.status) ? (
                       <Loader2 size={12} className="inline mr-1 animate-spin" />
                     ) : null}
                     {humanize(job.status)}
@@ -272,10 +381,27 @@ export default function Research() {
                   <p className="text-xs text-slate-400 mt-2">
                     {job.completedAt ? `Completed ${relativeTime(job.completedAt)}` : `Started ${relativeTime(job.createdAt)}`}
                   </p>
+                  {job.status === 'FAILED' && (
+                    <button
+                      onClick={retryJob}
+                      disabled={retrying}
+                      className="mt-2 inline-flex items-center space-x-1 text-xs font-semibold text-indigo-600 hover:text-indigo-800 disabled:opacity-50"
+                    >
+                      {retrying ? <Loader2 size={12} className="animate-spin" /> : <RotateCcw size={12} />}
+                      <span>Retry</span>
+                    </button>
+                  )}
                 </div>
               </div>
 
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
+                {NON_TERMINAL.includes(job.status) && (
+                  <div className="flex items-center space-x-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <Loader2 size={16} className="animate-spin shrink-0" />
+                    <span>Job is {humanize(job.status).toLowerCase()} — auto-refreshing every 5s.</span>
+                  </div>
+                )}
+
                 {/* Meta strip */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
@@ -298,7 +424,7 @@ export default function Research() {
                   </div>
                 )}
 
-                {/* Provider cost */}
+                {/* Provider usage */}
                 <div className="bg-slate-50 border border-slate-200 rounded-xl p-5">
                   <div className="flex items-center space-x-2 mb-3 text-slate-700">
                     <BrainCircuit size={18} />
@@ -329,7 +455,7 @@ export default function Research() {
                 {/* Result */}
                 <div>
                   <h3 className="font-bold text-slate-800 mb-3">Generated Output</h3>
-                  <ResultView result={job.result} />
+                  <ResultView result={job.result} status={job.status} />
                 </div>
               </div>
             </>
