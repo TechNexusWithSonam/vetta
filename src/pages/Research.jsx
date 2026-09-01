@@ -396,9 +396,26 @@ export default function Research() {
 
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
                 {NON_TERMINAL.includes(job.status) && (
-                  <div className="flex items-center space-x-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
-                    <Loader2 size={16} className="animate-spin shrink-0" />
-                    <span>Job is {humanize(job.status).toLowerCase()} — auto-refreshing every 5s.</span>
+                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 space-y-1.5">
+                    <div className="flex items-center space-x-2">
+                      <Loader2 size={16} className="animate-spin shrink-0" />
+                      <span>Job is {humanize(job.status).toLowerCase()} — auto-refreshing every 5s.</span>
+                    </div>
+                    {job.attempts === 0 && !job.provider && (
+                      <p className="text-xs pl-6 leading-relaxed">
+                        Not picked up by a worker yet. If it stays pending, the backend AI research
+                        worker isn&apos;t running on this deployment — jobs won&apos;t complete until it is.
+                      </p>
+                    )}
+                    <div className="pl-6">
+                      <button
+                        onClick={retryJob}
+                        disabled={retrying}
+                        className="text-xs font-semibold text-indigo-700 hover:underline disabled:opacity-50"
+                      >
+                        {retrying ? 'Re-enqueuing…' : 'Re-enqueue job'}
+                      </button>
+                    </div>
                   </div>
                 )}
 
