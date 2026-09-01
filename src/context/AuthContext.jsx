@@ -49,13 +49,17 @@ export function AuthProvider({ children }) {
         setStatus('authenticated');
       } catch (err) {
         if (!current()) return;
-        if (err instanceof ApiError && err.statusCode === 401) {
+        const transient = err instanceof ApiError && err.statusCode === 0; // offline / DNS / abort
+        if (transient) {
+          // Can't verify right now — keep the stored session and let real
+          // requests (with their 401 -> refresh) sort it out.
+          setStatus('authenticated');
+        } else {
+          // Any real HTTP status from /auth/me (401/400/403/5xx) => the token
+          // is no good; force a clean login instead of a half-broken session.
           tokenStore.clear();
           setUser(null);
           setStatus('unauthenticated');
-        } else {
-          // Network / server hiccup — keep the stored session, trust the token.
-          setStatus('authenticated');
         }
       }
     })();
