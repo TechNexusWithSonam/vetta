@@ -108,32 +108,44 @@ export default function Auth() {
   const handleAuthSubmit = async (e) => {
     e.preventDefault();
     if (submitting) return;
+
+    // Match the backend DTO so we don't bounce off a generic 400.
+    const email = form.email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (form.password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+
     setError('');
     setSubmitting(true);
     try {
       if (isLogin) {
-        await login({ email: form.email.trim(), password: form.password });
+        await login({ email, password: form.password });
       } else {
         await register({
           organizationName: form.organizationName.trim(),
           firstName: form.firstName.trim(),
           lastName: form.lastName.trim(),
-          email: form.email.trim(),
+          email,
           password: form.password
         });
       }
       navigate(from, { replace: true });
     } catch (err) {
       if (err instanceof ApiError) {
-        const msg = Array.isArray(err.body?.message)
-          ? err.body.message.join(', ')
-          : err.message;
+        const detail = Array.isArray(err.body?.message) ? err.body.message.join(', ') : null;
         if (err.statusCode === 401) {
           setError('Invalid email or password.');
         } else if (err.statusCode === 409) {
           setError('An account with this email already exists. Try logging in.');
+        } else if (err.statusCode === 400) {
+          setError(detail || 'Check your email and password and try again.');
         } else {
-          setError(msg || 'Something went wrong. Please try again.');
+          setError(detail || err.message || 'Something went wrong. Please try again.');
         }
       } else {
         setError('Unable to reach the server. Check your connection and try again.');
@@ -244,6 +256,7 @@ export default function Auth() {
                 <input
                   type={showPassword ? "text" : "password"}
                   required
+                  minLength={8}
                   value={form.password}
                   onChange={updateField('password')}
                   placeholder={isLogin ? "••••••••••••" : "Create a secure password"}
@@ -257,6 +270,9 @@ export default function Auth() {
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+              {!isLogin && (
+                <p className="text-[11px] text-slate-400 mt-1">At least 8 characters.</p>
+              )}
             </div>
 
             {error && (
