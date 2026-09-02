@@ -128,19 +128,36 @@ function ResultView({ result, status }) {
   );
 }
 
-/** Page-level banner when the research worker/queue is down. */
+/** Page-level banner about how (or whether) research jobs are being processed. */
 function InfraBanner({ diag }) {
   if (!diag) return null;
-  const workerDown = diag.worker && diag.worker.running === false;
+  const workerRunning = diag.worker?.running === true;
+  const drainActive = diag.drain?.active === true;
+  const processorLive = workerRunning || drainActive;
   const stalePending = Number(diag.jobs?.stalePending || 0) > 0;
   const redisDown = diag.redis && diag.redis !== 'ok';
-  if (!workerDown && !stalePending && !redisDown) return null;
+
+  // A live processor (worker or scheduled drain) and no backlog → all good.
+  if (processorLive && !stalePending && !redisDown && !drainActive) return null;
+
+  // Drain is doing the work, nothing backed up → a quiet FYI, not an alarm.
+  if (processorLive && !stalePending && !redisDown && drainActive && !workerRunning) {
+    return (
+      <div className="flex items-start gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-2.5 text-sm text-amber-800">
+        <AlertTriangle size={15} className="mt-0.5 shrink-0" />
+        <p>
+          Research is processed by a scheduled drain (no always-on worker) — results
+          can take up to ~1 minute longer to appear.
+        </p>
+      </div>
+    );
+  }
 
   const msg = redisDown
     ? 'Research queue storage (Redis) is unavailable — new jobs cannot be queued.'
-    : workerDown
-      ? 'No research worker is currently processing the queue — jobs will stay queued until it comes back online.'
-      : `${diag.jobs.stalePending} research job(s) have been waiting too long — the worker may be down.`;
+    : !processorLive
+      ? 'Nothing is currently processing the research queue — jobs will stay queued until a worker or the scheduled drain is running.'
+      : `${diag.jobs.stalePending} research job(s) have been waiting too long — processing may be down.`;
 
   return (
     <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
@@ -151,6 +168,11 @@ function InfraBanner({ diag }) {
         {diag.worker?.lastSeenAt && (
           <p className="text-xs text-rose-500 mt-0.5">
             Worker last seen {relativeTime(diag.worker.lastSeenAt)}.
+          </p>
+        )}
+        {diag.drain?.lastRunAt && (
+          <p className="text-xs text-rose-500 mt-0.5">
+            Last drain run {relativeTime(diag.drain.lastRunAt)}.
           </p>
         )}
       </div>
