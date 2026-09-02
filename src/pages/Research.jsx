@@ -171,7 +171,10 @@ export default function Research() {
   const jobs = useAsync(() => api.research.list({ page: 1, limit: 50 }), []);
   const leads = useAsync(() => api.leads.list({ page: 1, limit: 100 }), []);
   const cost = useAsync(() => api.research.costAnalytics().catch(() => null), []);
-  const diagnostics = useAsync(() => api.research.diagnostics().catch(() => null), []);
+  // Not `.catch`-swallowed: we want `diagnostics.error` so we can stop polling
+  // an endpoint the deployed backend may not have yet (older API => 400/404).
+  const diagnostics = useAsync(() => api.research.diagnostics(), []);
+  const diagnosticsUnavailable = Boolean(diagnostics.error);
 
   const jobRows = useMemo(() => jobs.data?.data ?? [], [jobs.data]);
   const leadList = useMemo(() => leads.data?.data ?? [], [leads.data]);
@@ -226,12 +229,13 @@ export default function Research() {
     return () => clearInterval(id);
   }, [isNonTerminal, reloadDetail]);
 
-  // Keep the infra banner fresh while a job is stuck.
+  // Keep the infra banner fresh while a job is stuck. Skip entirely if the
+  // diagnostics endpoint isn't available on this backend build.
   useEffect(() => {
-    if (!isNonTerminal) return undefined;
+    if (!isNonTerminal || diagnosticsUnavailable) return undefined;
     const id = setInterval(() => reloadDiagnostics(), 15000);
     return () => clearInterval(id);
-  }, [isNonTerminal, reloadDiagnostics]);
+  }, [isNonTerminal, diagnosticsUnavailable, reloadDiagnostics]);
 
   // Clear the retry error whenever a different job is selected.
   useEffect(() => {
