@@ -1,24 +1,45 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Users, 
-  GitBranch, 
-  BrainCircuit, 
-  Phone, 
-  Calendar, 
-  BarChart2, 
-  Plug, 
+import {
+  LayoutDashboard,
+  Users,
+  GitBranch,
+  BrainCircuit,
+  Phone,
+  Calendar,
+  BarChart2,
+  Plug,
   Settings,
   Search,
   Upload,
   Rocket,
   Bell,
-  ShieldCheck
+  ShieldCheck,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '../context/useAuth';
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+  const displayName = fullName || user?.email || 'Signed in';
+  const initials =
+    (fullName
+      ? fullName.split(' ').map((p) => p[0]).join('')
+      : (user?.email || '?').slice(0, 2)
+    )
+      .slice(0, 2)
+      .toUpperCase();
+  const roleLabel = user?.role
+    ? `${user.role[0]}${user.role.slice(1).toLowerCase()}`
+    : 'Member';
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   // Navigation styling using the Indigo-600 brand color
   const navLinkClasses = ({ isActive }) =>
@@ -157,12 +178,19 @@ export default function AppLayout() {
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold shrink-0 border border-indigo-200">
-              GT
+              {initials}
             </div>
-            <div className="truncate">
-              <p className="text-xs font-semibold text-white truncate">Gaurav Tripathi</p>
-              <p className="text-[10px] text-slate-400 truncate">Workspace Admin</p>
+            <div className="truncate flex-1">
+              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
+              <p className="text-[10px] text-slate-400 truncate">{roleLabel}</p>
             </div>
+            <button
+              onClick={handleLogout}
+              title="Log out"
+              className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white flex items-center justify-center transition-colors shrink-0"
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </div>
       </aside>

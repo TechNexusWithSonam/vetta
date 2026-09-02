@@ -7,7 +7,11 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "verify:api": "node scripts/verify-api-against-postman.mjs",
+    "smoke:auth": "node scripts/smoke-auth-live.mjs",
+    "smoke:api": "node scripts/smoke-all-live.mjs",
+    "audit": "node scripts/feature-audit.mjs"
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.2.1",

@@ -1,29 +1,48 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
-import { 
-  ShieldCheck, 
-  BrainCircuit, 
-  PhoneCall, 
-  GitBranch, 
-  Calendar, 
-  ArrowRight, 
-  Lock, 
-  Mail, 
-  User, 
-  Eye, 
+import { useNavigate, useLocation, Navigate } from 'react-router-dom';
+import {
+  ShieldCheck,
+  BrainCircuit,
+  PhoneCall,
+  GitBranch,
+  Calendar,
+  ArrowRight,
+  Lock,
+  Mail,
+  User,
+  Building2,
+  Eye,
   EyeOff,
   ChevronLeft,
-  ChevronRight
+  ChevronRight,
+  Loader2,
+  AlertCircle
 } from 'lucide-react';
+import { ApiError } from '../api';
+import { useAuth } from '../context/useAuth';
+
+const EMPTY_FORM = {
+  organizationName: '',
+  firstName: '',
+  lastName: '',
+  email: '',
+  password: ''
+};
 
 export default function Auth() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const { login, register, status } = useAuth();
+
   const [isLogin, setIsLogin] = useState(false); // Toggle between Login & Signup
   const [showPassword, setShowPassword] = useState(false);
-  
+  const [form, setForm] = useState(EMPTY_FORM);
+  const [error, setError] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+
   // 5 Client Testimonials state for rotation
   const [currentTestimonial, setCurrentTestimonial] = useState(0);
-  
+
   const clients = [
     {
       quote: "Vetta completely collapsed our SDR ramp time. The AI handles voicemails and dead numbers, and my team only talks to live prospects.",
@@ -70,17 +89,78 @@ export default function Auth() {
     return () => clearInterval(timer);
   }, [clients.length]);
 
-  const handleAuthSubmit = (e) => {
+  const from = location.state?.from?.pathname || '/dashboard';
+
+  // Already signed in? Skip the form.
+  if (status === 'authenticated') {
+    return <Navigate to={from} replace />;
+  }
+
+  const updateField = (key) => (e) => {
+    setForm((prev) => ({ ...prev, [key]: e.target.value }));
+  };
+
+  const switchMode = () => {
+    setIsLogin((prev) => !prev);
+    setError('');
+  };
+
+  const handleAuthSubmit = async (e) => {
     e.preventDefault();
-    navigate('/dashboard');
+    if (submitting) return;
+
+    // Match the backend DTO so we don't bounce off a generic 400.
+    const email = form.email.trim();
+    if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) {
+      setError('Enter a valid email address.');
+      return;
+    }
+    if (form.password.length < 8) {
+      setError('Password must be at least 8 characters.');
+      return;
+    }
+
+    setError('');
+    setSubmitting(true);
+    try {
+      if (isLogin) {
+        await login({ email, password: form.password });
+      } else {
+        await register({
+          organizationName: form.organizationName.trim(),
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          email,
+          password: form.password
+        });
+      }
+      navigate(from, { replace: true });
+    } catch (err) {
+      if (err instanceof ApiError) {
+        const detail = Array.isArray(err.body?.message) ? err.body.message.join(', ') : null;
+        if (err.statusCode === 401) {
+          setError('Invalid email or password.');
+        } else if (err.statusCode === 409) {
+          setError('An account with this email already exists. Try logging in.');
+        } else if (err.statusCode === 400) {
+          setError(detail || 'Check your email and password and try again.');
+        } else {
+          setError(detail || err.message || 'Something went wrong. Please try again.');
+        }
+      } else {
+        setError('Unable to reach the server. Check your connection and try again.');
+      }
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
     <div className="min-h-screen w-full flex bg-white font-sans text-slate-900 overflow-hidden">
-      
+
       {/* LEFT SIDE: Form Container (Sign Up / Login) */}
       <div className="w-full lg:w-1/2 flex flex-col justify-between p-8 sm:p-12 lg:p-16 overflow-y-auto">
-        
+
         {/* Top Logo */}
         <div className="flex items-center space-x-3">
           <div className="w-9 h-9 rounded-xl bg-indigo-600 flex items-center justify-center shadow-md">
@@ -91,51 +171,74 @@ export default function Auth() {
 
         {/* Center Form Box */}
         <div className="w-full max-w-md mx-auto my-auto py-8">
-          
+
           <div className="mb-8">
             <h2 className="text-3xl font-extrabold text-slate-900 tracking-tight mb-2">
               {isLogin ? 'Welcome back' : 'Create your account'}
             </h2>
             <p className="text-slate-500 text-sm">
-              {isLogin 
-                ? 'Log in to continue running your autonomous sales pipeline.' 
+              {isLogin
+                ? 'Log in to continue running your autonomous sales pipeline.'
                 : 'Start running AI-assisted cold dials and multi-channel cadences in minutes.'}
             </p>
           </div>
 
           <form onSubmit={handleAuthSubmit} className="space-y-4">
-            
+
             {!isLogin && (
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">First name</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="Gaurav" 
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+              <>
+                <div className="grid grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">First name</label>
+                    <input
+                      type="text"
+                      required
+                      value={form.firstName}
+                      onChange={updateField('firstName')}
+                      placeholder="Gaurav"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Last name</label>
+                    <input
+                      type="text"
+                      required
+                      value={form.lastName}
+                      onChange={updateField('lastName')}
+                      placeholder="Tripathi"
+                      className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
+
                 <div>
-                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Last name</label>
-                  <input 
-                    type="text" 
-                    required 
-                    placeholder="Tripathi" 
-                    className="w-full px-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
-                  />
+                  <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Organization name</label>
+                  <div className="relative">
+                    <Building2 size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
+                    <input
+                      type="text"
+                      required
+                      value={form.organizationName}
+                      onChange={updateField('organizationName')}
+                      placeholder="Acme Outbound"
+                      className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
+                    />
+                  </div>
                 </div>
-              </div>
+              </>
             )}
 
             <div>
               <label className="block text-xs font-bold uppercase tracking-wider text-slate-500 mb-1">Work email</label>
               <div className="relative">
                 <Mail size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type="email" 
-                  required 
-                  placeholder="you@company.com" 
+                <input
+                  type="email"
+                  required
+                  value={form.email}
+                  onChange={updateField('email')}
+                  placeholder="you@company.com"
                   className="w-full pl-10 pr-3.5 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
               </div>
@@ -150,36 +253,59 @@ export default function Auth() {
               </div>
               <div className="relative">
                 <Lock size={16} className="absolute left-3.5 top-1/2 -translate-y-1/2 text-slate-400" />
-                <input 
-                  type={showPassword ? "text" : "password"} 
-                  required 
-                  placeholder={isLogin ? "••••••••••••" : "Create a secure password"} 
+                <input
+                  type={showPassword ? "text" : "password"}
+                  required
+                  minLength={8}
+                  value={form.password}
+                  onChange={updateField('password')}
+                  placeholder={isLogin ? "••••••••••••" : "Create a secure password"}
                   className="w-full pl-10 pr-10 py-2.5 bg-slate-50 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
                 />
-                <button 
-                  type="button" 
+                <button
+                  type="button"
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600"
                 >
                   {showPassword ? <EyeOff size={16} /> : <Eye size={16} />}
                 </button>
               </div>
+              {!isLogin && (
+                <p className="text-[11px] text-slate-400 mt-1">At least 8 characters.</p>
+              )}
             </div>
 
-            <button 
-              type="submit" 
-              className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex items-center justify-center space-x-2"
+            {error && (
+              <div className="flex items-start space-x-2 rounded-lg border border-rose-200 bg-rose-50 px-3.5 py-2.5 text-sm text-rose-700">
+                <AlertCircle size={16} className="mt-0.5 shrink-0" />
+                <span>{error}</span>
+              </div>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting}
+              className="w-full mt-2 py-3 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-60 disabled:cursor-not-allowed text-white rounded-lg text-sm font-semibold transition-colors shadow-sm flex items-center justify-center space-x-2"
             >
-              <span>{isLogin ? 'Log in to workspace' : 'Create account'}</span>
-              <ArrowRight size={16} />
+              {submitting ? (
+                <>
+                  <Loader2 size={16} className="animate-spin" />
+                  <span>{isLogin ? 'Logging in…' : 'Creating account…'}</span>
+                </>
+              ) : (
+                <>
+                  <span>{isLogin ? 'Log in to workspace' : 'Create account'}</span>
+                  <ArrowRight size={16} />
+                </>
+              )}
             </button>
           </form>
 
           {/* Toggle between Login and Signup */}
           <div className="mt-6 text-center text-sm text-slate-500">
             {isLogin ? "Don't have an account? " : "Already have an account? "}
-            <button 
-              onClick={() => setIsLogin(!isLogin)} 
+            <button
+              onClick={switchMode}
               className="font-semibold text-indigo-600 hover:text-indigo-800 transition-colors"
             >
               {isLogin ? 'Create a free account' : 'Log in'}
@@ -197,7 +323,7 @@ export default function Auth() {
 
       {/* RIGHT SIDE: Platform Highlights & Rotating Client Testimonials */}
       <div className="hidden lg:flex w-1/2 bg-indigo-900 text-white flex-col justify-between p-12 relative overflow-hidden">
-        
+
         {/* Background ambient lighting */}
         <div className="absolute top-0 right-0 w-[500px] h-[500px] bg-indigo-600/30 rounded-full blur-[120px] pointer-events-none"></div>
         <div className="absolute bottom-0 left-0 w-[400px] h-[400px] bg-emerald-500/10 rounded-full blur-[100px] pointer-events-none"></div>
@@ -208,7 +334,7 @@ export default function Auth() {
             <ShieldCheck size={14} className="text-indigo-400" />
             <span>The Complete Autonomous Sales Platform</span>
           </div>
-          
+
           <h1 className="text-4xl font-extrabold tracking-tight mb-3 leading-tight">
             From first lead to booked meeting.
           </h1>
@@ -218,7 +344,7 @@ export default function Auth() {
 
           {/* Feature Steps List */}
           <div className="space-y-4 max-w-md">
-            
+
             <div className="flex items-start space-x-3">
               <div className="w-8 h-8 rounded-lg bg-white/10 border border-white/15 flex items-center justify-center shrink-0 mt-0.5">
                 <BrainCircuit size={16} className="text-indigo-300" />
@@ -265,13 +391,13 @@ export default function Auth() {
         {/* BOTTOM: Rotating 5 Clients Testimonial Box with Navigation Controls */}
         <div className="relative z-10 mt-8">
           <div className="bg-indigo-950/60 border border-white/15 p-6 rounded-2xl backdrop-blur-md relative shadow-xl">
-            
+
             <p className="text-indigo-100 text-sm italic mb-6 leading-relaxed">
               "{clients[currentTestimonial].quote}"
             </p>
 
             <div className="flex items-center justify-between">
-              
+
               {/* Client Info */}
               <div className="flex items-center space-x-3">
                 <div className={`w-10 h-10 rounded-full bg-gradient-to-br ${clients[currentTestimonial].bg} border border-white/20 flex items-center justify-center text-white font-bold text-sm shadow-sm`}>
@@ -287,7 +413,7 @@ export default function Auth() {
               <div className="flex items-center space-x-3">
                 <div className="flex space-x-1">
                   {clients.map((_, idx) => (
-                    <button 
+                    <button
                       key={idx}
                       onClick={() => setCurrentTestimonial(idx)}
                       className={`h-1.5 rounded-full transition-all ${currentTestimonial === idx ? 'w-6 bg-indigo-400' : 'w-1.5 bg-white/30'}`}
@@ -296,13 +422,13 @@ export default function Auth() {
                 </div>
 
                 <div className="flex items-center space-x-1 pl-2 border-l border-white/15">
-                  <button 
+                  <button
                     onClick={() => setCurrentTestimonial((prev) => (prev === 0 ? clients.length - 1 : prev - 1))}
                     className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
                   >
                     <ChevronLeft size={16} />
                   </button>
-                  <button 
+                  <button
                     onClick={() => setCurrentTestimonial((prev) => (prev + 1) % clients.length)}
                     className="w-7 h-7 rounded-lg bg-white/10 hover:bg-white/20 flex items-center justify-center text-white transition-colors"
                   >
