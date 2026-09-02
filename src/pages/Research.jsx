@@ -8,21 +8,43 @@ import {
   Loader2,
   AlertTriangle,
   Play,
-  RotateCcw
+  RotateCcw,
+  WifiOff
 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAsync } from '../hooks/useAsync';
 import { ErrorState, EmptyState, Skeleton } from '../components/ui';
 import { humanize, relativeTime, personName, initials, money, num } from '../lib/format';
 
+// Backend status-view labels (lowercase). PENDING -> 'queued', PROCESSING -> 'processing'.
 const STATUS_STYLES = {
-  PENDING: 'bg-amber-100 text-amber-700',
-  RUNNING: 'bg-blue-100 text-blue-700',
-  PROCESSING: 'bg-blue-100 text-blue-700',
-  COMPLETED: 'bg-emerald-100 text-emerald-700',
-  FAILED: 'bg-rose-100 text-rose-700'
+  queued: 'bg-amber-100 text-amber-700',
+  processing: 'bg-blue-100 text-blue-700',
+  completed: 'bg-emerald-100 text-emerald-700',
+  failed: 'bg-rose-100 text-rose-700',
+  cancelled: 'bg-slate-100 text-slate-600'
 };
-const NON_TERMINAL = ['PENDING', 'RUNNING', 'PROCESSING', 'QUEUED'];
+const NON_TERMINAL = ['queued', 'processing'];
+
+// error.code values that will not change on a re-run — Retry is pointless.
+const PERMANENT_ERROR_CODES = new Set([
+  'PROVIDER_CONFIG_MISSING',
+  'PROMPT_NOT_CONFIGURED',
+  'SCHEMA_VALIDATION_FAILED',
+  'LEAD_NOT_FOUND'
+]);
+
+// Optional extra guidance shown under the error message, keyed by code.
+const ERROR_CODE_HINT = {
+  PROVIDER_CONFIG_MISSING: 'Add an AI provider key in Settings, then start a new job.',
+  PROMPT_NOT_CONFIGURED: 'The research prompt template has no active version on the backend.',
+  QUEUE_UNAVAILABLE: 'The research queue could not accept the job. Try again shortly.',
+  REDIS_CONNECTION_FAILED: 'Queue storage is unreachable. Try again once it recovers.',
+  PROVIDER_TIMEOUT: 'The AI provider did not respond in time. Retrying is safe.',
+  PROVIDER_REQUEST_FAILED: 'The AI provider returned an error. Retrying is safe.',
+  JOB_STALE: 'The job was not processed in time and was released. Re-enqueue to try again.'
+};
+
 const asPct = (v) => (v == null ? null : Math.round(Number(v) <= 1 ? Number(v) * 100 : Number(v)));
 
 function Section({ title, children }) {
@@ -106,6 +128,36 @@ function ResultView({ result, status }) {
   );
 }
 
+/** Page-level banner when the research worker/queue is down. */
+function InfraBanner({ diag }) {
+  if (!diag) return null;
+  const workerDown = diag.worker && diag.worker.running === false;
+  const stalePending = Number(diag.jobs?.stalePending || 0) > 0;
+  const redisDown = diag.redis && diag.redis !== 'ok';
+  if (!workerDown && !stalePending && !redisDown) return null;
+
+  const msg = redisDown
+    ? 'Research queue storage (Redis) is unavailable — new jobs cannot be queued.'
+    : workerDown
+      ? 'No research worker is currently processing the queue — jobs will stay queued until it comes back online.'
+      : `${diag.jobs.stalePending} research job(s) have been waiting too long — the worker may be down.`;
+
+  return (
+    <div className="flex items-start gap-2 rounded-lg border border-rose-200 bg-rose-50 px-4 py-3 text-sm text-rose-700">
+      <WifiOff size={16} className="mt-0.5 shrink-0" />
+      <div>
+        <p className="font-semibold">Research processing is degraded</p>
+        <p className="text-rose-600">{msg}</p>
+        {diag.worker?.lastSeenAt && (
+          <p className="text-xs text-rose-500 mt-0.5">
+            Worker last seen {relativeTime(diag.worker.lastSeenAt)}.
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export default function Research() {
   const [search, setSearch] = useState('');
   const [selectedId, setSelectedId] = useState(null);
@@ -114,10 +166,12 @@ export default function Research() {
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState('');
   const [retrying, setRetrying] = useState(false);
+  const [retryError, setRetryError] = useState('');
 
   const jobs = useAsync(() => api.research.list({ page: 1, limit: 50 }), []);
   const leads = useAsync(() => api.leads.list({ page: 1, limit: 100 }), []);
   const cost = useAsync(() => api.research.costAnalytics().catch(() => null), []);
+  const diagnostics = useAsync(() => api.research.diagnostics().catch(() => null), []);
 
   const jobRows = useMemo(() => jobs.data?.data ?? [], [jobs.data]);
   const leadList = useMemo(() => leads.data?.data ?? [], [leads.data]);
@@ -132,7 +186,7 @@ export default function Research() {
     if (!q) return jobRows;
     return jobRows.filter((j) => {
       const lead = leadMap[j.leadId];
-      const hay = `${personName(lead)} ${lead?.company ?? ''} ${j.type} ${j.status}`.toLowerCase();
+      const hay = `${personName(lead)} ${lead?.company ?? ''} ${j.type ?? ''} ${j.status}`.toLowerCase();
       return hay.includes(q);
     });
   }, [jobRows, leadMap, search]);
@@ -158,18 +212,37 @@ export default function Research() {
   );
 
   const reloadDetail = detail.reload;
+  const reloadDiagnostics = diagnostics.reload;
   const jobStatus = job?.status;
+  const isNonTerminal = NON_TERMINAL.includes(jobStatus);
+  const isPermanentFailure =
+    job?.status === 'failed' && job?.error && PERMANENT_ERROR_CODES.has(job.error.code);
+  const canRetry = job && (job.status === 'failed' ? !isPermanentFailure : isNonTerminal);
 
   // Auto-poll a non-terminal job every 5s until it finishes.
   useEffect(() => {
-    if (!jobStatus || !NON_TERMINAL.includes(jobStatus)) return undefined;
+    if (!isNonTerminal) return undefined;
     const id = setInterval(() => reloadDetail(), 5000);
     return () => clearInterval(id);
-  }, [jobStatus, reloadDetail]);
+  }, [isNonTerminal, reloadDetail]);
+
+  // Keep the infra banner fresh while a job is stuck.
+  useEffect(() => {
+    if (!isNonTerminal) return undefined;
+    const id = setInterval(() => reloadDiagnostics(), 15000);
+    return () => clearInterval(id);
+  }, [isNonTerminal, reloadDiagnostics]);
+
+  // Clear the retry error whenever a different job is selected.
+  useEffect(() => {
+    setRetryError('');
+  }, [activeId]);
 
   const refreshJobs = () => {
     setRefreshing(true);
-    Promise.allSettled([jobs.reload(), leads.reload(), cost.reload()]).finally(() => setRefreshing(false));
+    Promise.allSettled([jobs.reload(), leads.reload(), cost.reload(), diagnostics.reload()]).finally(
+      () => setRefreshing(false)
+    );
   };
 
   const startResearch = async () => {
@@ -182,13 +255,21 @@ export default function Research() {
       await jobs.reload();
       if (created?.id) setSelectedId(created.id);
     } catch (err) {
-      setStartError(
-        err instanceof ApiError
-          ? Array.isArray(err.body?.message)
-            ? err.body.message.join(', ')
-            : err.message
-          : 'Could not start research.'
-      );
+      if (err instanceof ApiError) {
+        // 503 fail-fast: the queue could not accept the job (body carries a code).
+        const code = err.body?.code;
+        const msg = Array.isArray(err.body?.message)
+          ? err.body.message.join(', ')
+          : err.body?.message || err.message;
+        setStartError(code ? `${msg} (${code})` : msg || 'Could not start research.');
+        // The backend already marked the (failed) job — surface it if we got an id.
+        if (err.body?.researchJobId) {
+          setSelectedId(err.body.researchJobId);
+          jobs.reload();
+        }
+      } else {
+        setStartError('Could not start research.');
+      }
     } finally {
       setStarting(false);
     }
@@ -197,12 +278,20 @@ export default function Research() {
   const retryJob = async () => {
     if (!activeId || retrying) return;
     setRetrying(true);
+    setRetryError('');
     try {
       await api.research.retry(activeId);
       reloadDetail();
       jobs.reload();
     } catch (err) {
-      alert(err instanceof ApiError ? `Retry failed: ${err.message}` : 'Retry failed.');
+      if (err instanceof ApiError && err.status === 409) {
+        setRetryError(err.body?.message || 'This job cannot be re-enqueued right now.');
+        reloadDetail();
+      } else {
+        setRetryError(
+          err instanceof ApiError ? `Retry failed: ${err.message}` : 'Retry failed.'
+        );
+      }
     } finally {
       setRetrying(false);
     }
@@ -234,6 +323,8 @@ export default function Research() {
           />
         </div>
       </div>
+
+      <InfraBanner diag={diagnostics.data} />
 
       <div className="flex flex-1 gap-6 min-h-0">
         {/* Left: Job Queue */}
@@ -320,7 +411,7 @@ export default function Research() {
                         STATUS_STYLES[j.status] || 'bg-slate-100 text-slate-600'
                       }`}
                     >
-                      {humanize(j.status)}
+                      {j.stale && NON_TERMINAL.includes(j.status) ? 'Stalled' : humanize(j.status)}
                     </span>
                   </div>
                   <p className="text-xs text-slate-500">{humanize(j.type)}</p>
@@ -373,15 +464,21 @@ export default function Research() {
                       STATUS_STYLES[job.status] || 'bg-slate-100 text-slate-600'
                     }`}
                   >
-                    {NON_TERMINAL.includes(job.status) ? (
+                    {isNonTerminal && !job.stale ? (
                       <Loader2 size={12} className="inline mr-1 animate-spin" />
                     ) : null}
-                    {humanize(job.status)}
+                    {job.stale && isNonTerminal ? 'Stalled' : humanize(job.status)}
                   </span>
                   <p className="text-xs text-slate-400 mt-2">
-                    {job.completedAt ? `Completed ${relativeTime(job.completedAt)}` : `Started ${relativeTime(job.createdAt)}`}
+                    {job.completedAt
+                      ? `Completed ${relativeTime(job.completedAt)}`
+                      : job.failedAt
+                        ? `Failed ${relativeTime(job.failedAt)}`
+                        : job.startedAt
+                          ? `Started ${relativeTime(job.startedAt)}`
+                          : `Created ${relativeTime(job.createdAt)}`}
                   </p>
-                  {job.status === 'FAILED' && (
+                  {canRetry && job.status === 'failed' && (
                     <button
                       onClick={retryJob}
                       disabled={retrying}
@@ -395,18 +492,28 @@ export default function Research() {
               </div>
 
               <div className="p-6 flex-1 overflow-y-auto space-y-6">
-                {NON_TERMINAL.includes(job.status) && (
-                  <div className="rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 space-y-1.5">
+                {isNonTerminal && (
+                  <div
+                    className={`rounded-lg border p-3 text-sm space-y-1.5 ${
+                      job.stale
+                        ? 'border-rose-200 bg-rose-50 text-rose-800'
+                        : 'border-amber-200 bg-amber-50 text-amber-800'
+                    }`}
+                  >
                     <div className="flex items-center space-x-2">
-                      <Loader2 size={16} className="animate-spin shrink-0" />
-                      <span>Job is {humanize(job.status).toLowerCase()} — auto-refreshing every 5s.</span>
+                      {job.stale ? (
+                        <AlertTriangle size={16} className="shrink-0" />
+                      ) : (
+                        <Loader2 size={16} className="animate-spin shrink-0" />
+                      )}
+                      <span>
+                        {job.stale && job.status === 'queued'
+                          ? 'Not picked up by a worker — the research queue may be offline.'
+                          : job.stale && job.status === 'processing'
+                            ? 'Processing is taking much longer than expected. It will be released as failed shortly.'
+                            : `Job is ${humanize(job.status).toLowerCase()} — auto-refreshing every 5s.`}
+                      </span>
                     </div>
-                    {job.attempts === 0 && !job.provider && (
-                      <p className="text-xs pl-6 leading-relaxed">
-                        Not picked up by a worker yet. If it stays pending, the backend AI research
-                        worker isn&apos;t running on this deployment — jobs won&apos;t complete until it is.
-                      </p>
-                    )}
                     <div className="pl-6">
                       <button
                         onClick={retryJob}
@@ -419,13 +526,23 @@ export default function Research() {
                   </div>
                 )}
 
+                {retryError && (
+                  <div className="flex items-start space-x-2 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">
+                    <AlertTriangle size={16} className="mt-0.5 shrink-0" />
+                    <span>{retryError}</span>
+                  </div>
+                )}
+
                 {/* Meta strip */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                   {[
                     ['Provider', job.provider || '—'],
                     ['Model', job.model || '—'],
                     ['Attempts', num(job.attempts)],
-                    ['Prompt', `${job.promptKey || '—'} v${job.promptVersion ?? '—'}`]
+                    [
+                      'Started',
+                      job.startedAt ? relativeTime(job.startedAt) : job.stale ? 'not yet' : '—'
+                    ]
                   ].map(([label, value]) => (
                     <div key={label} className="bg-slate-50 border border-slate-200 rounded-lg p-3">
                       <p className="text-[10px] font-bold text-slate-400 uppercase tracking-wider">{label}</p>
@@ -434,10 +551,25 @@ export default function Research() {
                   ))}
                 </div>
 
-                {job.status === 'FAILED' && job.errorMessage && (
+                {job.status === 'failed' && job.error && (
                   <div className="flex items-start space-x-2 rounded-lg border border-rose-200 bg-rose-50 p-4 text-sm text-rose-700">
                     <AlertTriangle size={16} className="mt-0.5 shrink-0" />
-                    <span>{job.errorMessage}</span>
+                    <div>
+                      <p className="font-semibold">
+                        {job.error.message}
+                        <span className="ml-2 font-mono text-[11px] font-normal text-rose-500">
+                          {job.error.code}
+                        </span>
+                      </p>
+                      {ERROR_CODE_HINT[job.error.code] && (
+                        <p className="text-xs text-rose-600 mt-1">{ERROR_CODE_HINT[job.error.code]}</p>
+                      )}
+                      {isPermanentFailure && (
+                        <p className="text-xs text-rose-600 mt-1">
+                          This is a configuration problem — retrying will not help until it&apos;s fixed.
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
 
