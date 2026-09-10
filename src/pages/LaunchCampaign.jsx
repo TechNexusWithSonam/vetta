@@ -211,13 +211,13 @@ export default function LaunchCampaign() {
           </p>
           <div className="flex space-x-3 pt-4">
             <button
-              onClick={() => navigate('/workflow')}
+              onClick={() => navigate('/app/workflow')}
               className="px-5 py-2.5 border border-slate-200 text-slate-700 font-semibold rounded-xl text-sm hover:bg-slate-50 transition-colors"
             >
               Open in Workflow
             </button>
             <button
-              onClick={() => navigate('/dashboard')}
+              onClick={() => navigate('/app/dashboard')}
               className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition-colors shadow-sm"
             >
               Go to Dashboard
@@ -267,7 +267,7 @@ export default function LaunchCampaign() {
               <p className="text-xs text-amber-600 mt-2 flex items-center">
                 <AlertCircle size={13} className="mr-1" />
                 No matching leads.{' '}
-                <button className="ml-1 font-semibold text-indigo-600" onClick={() => navigate('/import-leads')}>
+                <button className="ml-1 font-semibold text-indigo-600" onClick={() => navigate('/app/import-leads')}>
                   Import leads
                 </button>
                 &nbsp;first.
@@ -354,7 +354,7 @@ export default function LaunchCampaign() {
                       <>
                         {' '}
                         The campaign was created —{' '}
-                        <button className="font-semibold underline" onClick={() => navigate('/workflow')}>
+                        <button className="font-semibold underline" onClick={() => navigate('/app/workflow')}>
                           finish it in Workflow
                         </button>
                         .

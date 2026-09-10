@@ -92,7 +92,7 @@ export default function AppLayout() {
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-3">
               Workspace
             </div>
-            <NavLink to="/dashboard" className={navLinkClasses}>
+            <NavLink to="/app/dashboard" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <LayoutDashboard className={iconClasses({ isActive })} />
@@ -100,7 +100,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/leads" className={navLinkClasses}>
+            <NavLink to="/app/leads" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Users className={iconClasses({ isActive })} />
@@ -108,7 +108,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/workflow" className={navLinkClasses}>
+            <NavLink to="/app/workflow" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <GitBranch className={iconClasses({ isActive })} />
@@ -116,7 +116,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/research" className={navLinkClasses}>
+            <NavLink to="/app/research" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <BrainCircuit className={iconClasses({ isActive })} />
@@ -124,7 +124,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/live-calls" className={navLinkClasses}>
+            <NavLink to="/app/live-calls" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Phone className={iconClasses({ isActive })} />
@@ -132,7 +132,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/bookings" className={navLinkClasses}>
+            <NavLink to="/app/bookings" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Calendar className={iconClasses({ isActive })} />
@@ -147,7 +147,7 @@ export default function AppLayout() {
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-3">
               Insights
             </div>
-            <NavLink to="/analytics" className={navLinkClasses}>
+            <NavLink to="/app/analytics" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <BarChart2 className={iconClasses({ isActive })} />
@@ -155,7 +155,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/integrations" className={navLinkClasses}>
+            <NavLink to="/app/integrations" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Plug className={iconClasses({ isActive })} />
@@ -163,7 +163,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/settings" className={navLinkClasses}>
+            <NavLink to="/app/settings" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Settings className={iconClasses({ isActive })} />
@@ -217,7 +217,7 @@ export default function AppLayout() {
 
             {/* Import Leads Button Linked */}
             <button 
-              onClick={() => navigate('/import-leads')}
+              onClick={() => navigate('/app/import-leads')}
               className="h-[38px] px-4 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg flex items-center space-x-2 transition-colors cursor-pointer"
             >
               <Upload size={16} />
@@ -226,7 +226,7 @@ export default function AppLayout() {
 
             {/* Launch Campaign Button Linked */}
             <button 
-              onClick={() => navigate('/launch-campaign')}
+              onClick={() => navigate('/app/launch-campaign')}
               className="h-[38px] px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg flex items-center space-x-2 transition-colors shadow-sm cursor-pointer"
             >
               <Rocket size={16} />

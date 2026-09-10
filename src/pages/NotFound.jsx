@@ -38,12 +38,12 @@ export default function NotFound() {
 
         {/* Action Buttons */}
         <div className="flex flex-col sm:flex-row items-center gap-4 w-full justify-center">
-          <button 
-            onClick={() => navigate('/dashboard')}
+          <button
+            onClick={() => navigate('/')}
             className="w-full sm:w-auto px-8 py-3 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg font-semibold transition-all shadow-[0_0_20px_rgba(79,70,229,0.3)] hover:shadow-[0_0_25px_rgba(79,70,229,0.5)] flex items-center justify-center gap-2"
           >
             <Home size={18} />
-            <span>Return to Dashboard</span>
+            <span>Back to home</span>
           </button>
           
           <button 
