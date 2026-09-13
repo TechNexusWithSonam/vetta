@@ -64,11 +64,7 @@ export class ApiError extends Error {
     const b = parsedBody && typeof parsedBody === 'object' ? parsedBody : {};
     return new ApiError({
       statusCode: b.statusCode ?? response.status,
-      message:
-        b.message ??
-        (typeof parsedBody === 'string' && parsedBody
-          ? parsedBody
-          : response.statusText),
+      message: b.message ?? plainTextMessage(parsedBody) ?? response.statusText,
       error: b.error,
       timestamp: b.timestamp,
       path: b.path,
@@ -77,4 +73,21 @@ export class ApiError extends Error {
       kind: 'http',
     });
   }
+}
+
+/**
+ * A non-JSON body is only usable as a user-facing message if it actually
+ * looks like one — short plain text. A misconfigured proxy or an unrelated
+ * server on the target port can return an HTML error page (or another app's
+ * markup entirely); dumping that verbatim into the UI is worse than a
+ * generic fallback, so anything HTML-shaped or too long is rejected here.
+ * @param {unknown} body
+ * @returns {string|null}
+ */
+function plainTextMessage(body) {
+  if (typeof body !== 'string') return null;
+  const trimmed = body.trim();
+  if (!trimmed || trimmed.length > 300) return null;
+  if (/<\/?[a-z][\s\S]*>/i.test(trimmed)) return null;
+  return trimmed;
 }

@@ -36,8 +36,10 @@ import { notifications } from './resources/notifications.js';
 import { analytics } from './resources/analytics.js';
 import { settings } from './resources/settings.js';
 import { system } from './resources/system.js';
+import { adminApi as admin } from './resources/adminIndex.js';
 
 export const api = {
+  admin,
   auth,
   leads,
   imports,
@@ -66,6 +68,7 @@ export { API_BASE_URL } from './config.js';
 
 // Namespaces are also exported individually for targeted imports.
 export {
+  admin,
   auth,
   leads,
   imports,

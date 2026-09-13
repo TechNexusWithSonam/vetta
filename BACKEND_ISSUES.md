@@ -80,6 +80,44 @@ curl -s -X POST https://vetta-backend.vercel.app/notification-webhook-configs \
 
 ---
 
+### 9. Research job status view has no `leadId` or `type`
+
+*(Filed after #8 but it's a P1 — a whole page can't identify its own rows.)*
+
+**Endpoints affected:** `POST /research`, `GET /research`, `GET /research/:id` (all return the "status view").
+
+**Repro** (fresh org, one lead, one job — full status view copied verbatim):
+
+```jsonc
+// GET /research  -> data[0]   AND   GET /research/:id
+{
+  "id": "e0e3410a-...", "status": "queued", "stale": false, "attempts": 0,
+  "provider": null, "model": null, "error": null, "queueJobId": "66",
+  "createdAt": "...", "startedAt": null, "completedAt": null,
+  "failedAt": null, "updatedAt": "..."
+}
+```
+
+**Expected:** the view identifies which lead the job is for and what kind of
+research it is — i.e. `leadId` and `type` at minimum, ideally an embedded
+`lead: { id, firstName, lastName, company }` so the list doesn't need a second
+call.
+
+**Actual:** neither `leadId` nor `type` appears on any research endpoint, and
+there is no lead-scoped research list. The client has **no way** to map a job to
+its lead. `POST /research` accepts `{ leadId, type }` but never echoes them back.
+
+**Frontend impact:** on the AI Research page every job (list + detail) shows a
+blank/`—` name, blank type, and a `—` avatar. Only jobs started in the current
+browser session can be labelled (the client now caches `jobId -> {leadId,type}`
+in `localStorage` as a stopgap); anything started elsewhere or before that cache
+is unidentifiable.
+
+**Fix:** add `leadId` and `type` (and preferably the nested `lead` summary) to
+the research status-view serializer.
+
+---
+
 ## P2 — Degraded / inconsistent
 
 ### 3. `POST /campaign-templates` requires fields the contract says are optional
@@ -137,6 +175,17 @@ those endpoints to synchronous processing for the serverless deployment.
 never complete on this deployment, so no `result` is ever shown and research cost
 stays `$0`. Call Strategy (which needs a `COMPLETED` research job) is therefore
 unreachable end-to-end.
+
+**Status (2026-09-12):** the fix described in `BACKEND_FIX_PROMPT.md` is now
+implemented in `vetta-backend` on branch `fix/empty-dist-on-rebuild` — a real
+worker entrypoint (`src/worker.ts`, deployable via the repo's `render.yaml`/
+`Procfile`/Fly `[processes]` recipe, see `docs/deploying-workers.md`), plus an
+interim Vercel Cron drain (`GET/POST /internal/research/drain`) as a fallback
+only. This branch is **not yet merged or deployed** — until it is, and a
+worker service is actually running, this issue is still live in production.
+Call-strategy generation's retry/error handling was also brought up to the
+same standard (error-code taxonomy, stale-`PROCESSING` sweep, a structural
+quality gate before publish) as part of the same change.
 
 ---
 
@@ -207,6 +256,33 @@ curl -s -i -X OPTIONS https://vetta-backend.vercel.app/auth/login \
 
 - Several 400/500s return `message: "Bad Request Exception"` / `"Internal server error"` — the bare exception name, no class-validator `message: string[]`, so callers can't tell what's wrong. (Contrast `/leads` which returns proper field-level messages.)
 - The collection documents an error field `requestId`, but it is **absent** from every error body observed. If a correlation id exists server-side, include it — it would make issues #2 and #4 debuggable.
+
+---
+
+### 9. Super Admin panel needs a real platform role + `/admin/*` endpoints
+
+The frontend now ships a Super Admin panel (`src/admin/`, mounted at `/admin/*`) for platform-level operations: organizations, users, calls, subscriptions, plans, billing, usage, COGS, analytics, roles/permissions, audit logs, and system settings. Today it is gated **client-side only** by an email allow-list (`VITE_SUPER_ADMIN_EMAILS`, see `src/admin/rbac/superAdminGate.js`) because:
+
+- `GET /auth/me` and `POST /auth/login`/`register` only ever return an org-scoped `role` (`OWNER`/`ADMIN`). There is no platform-wide role value (e.g. `SUPER_ADMIN`).
+- There are no cross-tenant endpoints at all — every existing endpoint is implicitly scoped to the caller's own organization via the JWT.
+
+**Required before production use:**
+1. Add a real `SUPER_ADMIN` role returned from `/auth/me` (and login/register), enforced server-side.
+2. Implement `/admin/*` endpoints and reject any caller whose role isn't `SUPER_ADMIN`, for at minimum:
+   `GET/POST/PATCH/DELETE /admin/organizations[/:id[/users|calls|usage|subscription|billing|activity]][/suspend|/activate]`,
+   `GET/PATCH/POST /admin/users[/:id[/role|/suspend|/activate]]`,
+   `GET /admin/calls[/:id]`,
+   `GET/PATCH/POST /admin/subscriptions[/:id[/plan|/cancel]]`,
+   `GET/POST/PATCH /admin/plans[/:id[/archive|/activate]]`,
+   `GET/POST /admin/billing/overview|invoices[/:id/refund]|payments`,
+   `GET/POST /admin/usage/overview|[/:orgId/credits/adjust]`,
+   `GET/PATCH /admin/cogs/categories[/:id]|/summary`,
+   `GET /admin/analytics/overview|org-growth|revenue-trend|churn-trend|call-volume-trend|plan-distribution`,
+   `GET/POST /admin/audit-logs`,
+   `GET/POST /admin/notifications[/:id/read|/broadcast]`,
+   `GET/PATCH /admin/roles|/permissions[/:id/permissions]`,
+   `GET/PATCH /admin/settings/general|security`.
+3. Once shipped, the frontend needs **no changes** — every `src/api/resources/admin*.js` function already calls the real path first and only falls back to mock data on a 404/405/501/502/503 (see `src/admin/lib/mockFallback.js`). Flip `src/admin/rbac/superAdminGate.js`'s `isSuperAdmin()` to check the real role once it exists.
 
 ---
 

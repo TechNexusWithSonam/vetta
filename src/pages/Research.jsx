@@ -47,6 +47,28 @@ const ERROR_CODE_HINT = {
 
 const asPct = (v) => (v == null ? null : Math.round(Number(v) <= 1 ? Number(v) * 100 : Number(v)));
 
+// The research status view returned by the API carries no `leadId` or `type`
+// (see BACKEND_ISSUES.md #9). Remember them locally for jobs started from this
+// screen so the lead name and job type still render after a reload.
+const JOB_META_KEY = 'vetta.research.jobMeta';
+const DEFAULT_TYPE = 'COMPANY_RESEARCH';
+
+function loadJobMeta() {
+  try {
+    return JSON.parse(localStorage.getItem(JOB_META_KEY)) || {};
+  } catch {
+    return {};
+  }
+}
+
+function saveJobMeta(map) {
+  try {
+    localStorage.setItem(JOB_META_KEY, JSON.stringify(map));
+  } catch {
+    /* storage unavailable / over quota — in-memory state still works this session */
+  }
+}
+
 function Section({ title, children }) {
   return (
     <div>
@@ -189,6 +211,17 @@ export default function Research() {
   const [startError, setStartError] = useState('');
   const [retrying, setRetrying] = useState(false);
   const [retryError, setRetryError] = useState('');
+  // jobId -> { leadId, type } for jobs started in this browser.
+  const [jobMeta, setJobMeta] = useState(loadJobMeta);
+
+  const rememberJob = (jobId, meta) => {
+    if (!jobId) return;
+    setJobMeta((prev) => {
+      const next = { ...prev, [jobId]: { ...prev[jobId], ...meta } };
+      saveJobMeta(next);
+      return next;
+    });
+  };
 
   const jobs = useAsync(() => api.research.list({ page: 1, limit: 50 }), []);
   const leads = useAsync(() => api.leads.list({ page: 1, limit: 100 }), []);
@@ -206,15 +239,23 @@ export default function Research() {
     return m;
   }, [leadList]);
 
+  // Resolve the job's lead id / type from the row, falling back to the local cache.
+  const leadIdOf = (job) => job?.leadId ?? jobMeta[job?.id]?.leadId ?? null;
+  const typeOf = (job) => job?.type ?? jobMeta[job?.id]?.type ?? DEFAULT_TYPE;
+  const leadOf = (job) => leadMap[leadIdOf(job)] ?? null;
+  const leadLabel = (lead) => (lead ? lead.company || personName(lead) : 'Unknown lead');
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     if (!q) return jobRows;
     return jobRows.filter((j) => {
-      const lead = leadMap[j.leadId];
-      const hay = `${personName(lead)} ${lead?.company ?? ''} ${j.type ?? ''} ${j.status}`.toLowerCase();
+      const lead = leadMap[j.leadId ?? jobMeta[j.id]?.leadId];
+      const hay = `${lead ? personName(lead) : ''} ${lead?.company ?? ''} ${
+        j.type ?? jobMeta[j.id]?.type ?? ''
+      } ${j.status}`.toLowerCase();
       return hay.includes(q);
     });
-  }, [jobRows, leadMap, search]);
+  }, [jobRows, leadMap, search, jobMeta]);
 
   const activeId = selectedId ?? jobRows[0]?.id ?? null;
 
@@ -228,7 +269,7 @@ export default function Research() {
   );
 
   const job = detail.data;
-  const jobLead = job ? leadMap[job.leadId] : null;
+  const jobLead = job ? leadOf(job) : null;
   const logs = Array.isArray(providerLogs.data) ? providerLogs.data : [];
   const totalCost = logs.reduce((sum, l) => sum + Number(l.costUsd || l.cost || 0), 0);
   const totalTokens = logs.reduce(
@@ -276,7 +317,8 @@ export default function Research() {
     setStarting(true);
     setStartError('');
     try {
-      const created = await api.research.start({ leadId: startLeadId, type: 'COMPANY_RESEARCH' });
+      const created = await api.research.start({ leadId: startLeadId, type: DEFAULT_TYPE });
+      rememberJob(created?.id, { leadId: startLeadId, type: DEFAULT_TYPE });
       setStartLeadId('');
       await jobs.reload();
       if (created?.id) setSelectedId(created.id);
@@ -290,6 +332,7 @@ export default function Research() {
         setStartError(code ? `${msg} (${code})` : msg || 'Could not start research.');
         // The backend already marked the (failed) job — surface it if we got an id.
         if (err.body?.researchJobId) {
+          rememberJob(err.body.researchJobId, { leadId: startLeadId, type: DEFAULT_TYPE });
           setSelectedId(err.body.researchJobId);
           jobs.reload();
         }
@@ -418,7 +461,7 @@ export default function Research() {
             )}
 
             {filtered.map((j) => {
-              const lead = leadMap[j.leadId];
+              const lead = leadOf(j);
               const active = j.id === activeId;
               return (
                 <button
@@ -430,7 +473,7 @@ export default function Research() {
                 >
                   <div className="flex justify-between items-start mb-1">
                     <span className={`font-semibold ${active ? 'text-slate-900' : 'text-slate-700'}`}>
-                      {lead?.company || personName(lead) || 'Unknown lead'}
+                      {leadLabel(lead)}
                     </span>
                     <span
                       className={`text-[10px] font-bold px-1.5 py-0.5 rounded ${
@@ -440,7 +483,7 @@ export default function Research() {
                       {j.stale && NON_TERMINAL.includes(j.status) ? 'Stalled' : humanize(j.status)}
                     </span>
                   </div>
-                  <p className="text-xs text-slate-500">{humanize(j.type)}</p>
+                  <p className="text-xs text-slate-500">{humanize(typeOf(j))}</p>
                   <p className="text-[11px] text-slate-400 mt-1">{relativeTime(j.createdAt)}</p>
                 </button>
               );
@@ -471,16 +514,14 @@ export default function Research() {
               <div className="p-6 border-b border-slate-200 bg-slate-50 flex items-start justify-between">
                 <div className="flex items-center space-x-4">
                   <div className="h-14 w-14 rounded-lg bg-indigo-600 text-white flex items-center justify-center font-bold text-lg shadow-sm">
-                    {initials(jobLead?.company || personName(jobLead))}
+                    {initials(jobLead ? jobLead.company || personName(jobLead) : '?')}
                   </div>
                   <div>
-                    <h2 className="text-2xl font-bold text-slate-900">
-                      {jobLead?.company || personName(jobLead) || 'Unknown lead'}
-                    </h2>
+                    <h2 className="text-2xl font-bold text-slate-900">{leadLabel(jobLead)}</h2>
                     <p className="text-sm text-slate-500 flex items-center mt-1">
-                      <User size={14} className="mr-1" /> {personName(jobLead)}
+                      <User size={14} className="mr-1" /> {jobLead ? personName(jobLead) : '—'}
                       <span className="mx-2 text-slate-300">|</span>
-                      <Building size={14} className="mr-1" /> {humanize(job.type)}
+                      <Building size={14} className="mr-1" /> {humanize(typeOf(job))}
                     </p>
                   </div>
                 </div>

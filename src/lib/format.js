@@ -2,6 +2,14 @@
 
 export const num = (n) => Number(n || 0).toLocaleString();
 
+/** "2m 15s" / "45s" from a seconds count. `null`/`undefined` -> "—". */
+export function duration(seconds) {
+  if (seconds == null) return '—';
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m ? `${m}m ${s}s` : `${s}s`;
+}
+
 export const money = (n) =>
   `$${Number(n || 0).toLocaleString(undefined, { maximumFractionDigits: 2 })}`;
 

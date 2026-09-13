@@ -1,5 +1,12 @@
-import React, { useState } from 'react';
-import { CheckCircle2, AlertTriangle, RefreshCcw, Plug, Loader2 } from 'lucide-react';
+import React, { useEffect, useState } from 'react';
+import {
+  CheckCircle2,
+  AlertTriangle,
+  RefreshCcw,
+  Plug,
+  Loader2,
+  CalendarPlus
+} from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAsync } from '../hooks/useAsync';
 import { ErrorState, EmptyState, Skeleton } from '../components/ui';
@@ -115,10 +122,41 @@ export default function Integrations() {
   const error = crm.error || calendar.error;
   const empty = !loading && !error && crmRows.length === 0 && calRows.length === 0;
 
+  const hasGoogleCal = calRows.some((c) => c.provider === 'GOOGLE');
+  const [connecting, setConnecting] = useState(false);
+  const [justConnected, setJustConnected] = useState(
+    () => new URLSearchParams(window.location.search).get('connected') === 'google'
+  );
+
+  useEffect(() => {
+    if (!justConnected) return undefined;
+    // Clean the ?connected=google the OAuth callback appended.
+    window.history.replaceState({}, '', window.location.pathname);
+    const t = setTimeout(() => setJustConnected(false), 6000);
+    return () => clearTimeout(t);
+  }, [justConnected]);
+
   const reloadAll = () => {
     crm.reload();
     calendar.reload();
     syncStats.reload();
+  };
+
+  const connectGoogle = async () => {
+    setConnecting(true);
+    try {
+      const res = await api.calendar.connections.googleOAuthUrl();
+      const url = typeof res === 'string' ? res : res?.url;
+      if (!url) throw new Error('No OAuth URL returned');
+      window.location.href = url;
+    } catch (err) {
+      setConnecting(false);
+      alert(
+        err instanceof ApiError
+          ? `Could not start Google Calendar connect: ${err.message}`
+          : 'Could not start Google Calendar connect. Is GOOGLE_CALENDAR_CLIENT_ID set on the backend?'
+      );
+    }
   };
 
   return (
@@ -135,6 +173,16 @@ export default function Integrations() {
               {num(syncStats.data.contactsSynced)} contacts · {num(syncStats.data.dealsSynced)} deals synced
             </span>
           )}
+          {!hasGoogleCal && (
+            <button
+              onClick={connectGoogle}
+              disabled={connecting}
+              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 text-white rounded-lg text-sm font-medium hover:bg-blue-700 transition-colors disabled:opacity-50"
+            >
+              {connecting ? <Loader2 size={16} className="animate-spin" /> : <CalendarPlus size={16} />}
+              <span>Connect Google Calendar</span>
+            </button>
+          )}
           <button
             onClick={reloadAll}
             className="flex items-center space-x-2 px-4 py-2 border border-slate-200 text-slate-600 rounded-lg text-sm font-medium hover:bg-slate-50 transition-colors"
@@ -144,6 +192,13 @@ export default function Integrations() {
           </button>
         </div>
       </div>
+
+      {justConnected && (
+        <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl px-4 py-3 text-sm flex items-center gap-2">
+          <CheckCircle2 size={16} />
+          Google Calendar connected. Auto-booked meetings from successful calls will now appear on the Bookings page.
+        </div>
+      )}
 
       {error && <ErrorState error={error} onRetry={reloadAll} />}
 

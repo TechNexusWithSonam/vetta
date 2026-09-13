@@ -24,13 +24,38 @@ const STATUS_STYLES = {
   COMPLETED: 'bg-indigo-100 text-indigo-700'
 };
 
+const detectTz = () => {
+  try {
+    return Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC';
+  } catch {
+    return 'UTC';
+  }
+};
+
+// The backend lifecycle is READY -> SCHEDULED -> RUNNING: `start` only accepts a
+// SCHEDULED campaign. This page has no schedule editor, so starting a READY
+// campaign first applies a sensible default schedule (Mon–Fri, 09:00–17:00,
+// local tz) to move it to SCHEDULED, then starts it.
+const DEFAULT_SCHEDULE = {
+  timezone: detectTz(),
+  businessHoursStart: '09:00',
+  businessHoursEnd: '17:00',
+  workDays: [1, 2, 3, 4, 5],
+};
+
+async function scheduleAndStart(id) {
+  await api.campaigns.configureSchedule(id, DEFAULT_SCHEDULE);
+  return api.campaigns.start(id);
+}
+
 // Which lifecycle action to offer for a given status.
 function nextAction(status) {
   switch (status) {
     case 'DRAFT':
-    case 'SCHEDULED':
       return { label: 'Mark Ready', icon: CheckCircle2, fn: (id) => api.campaigns.markReady(id) };
     case 'READY':
+      return { label: 'Start', icon: Play, fn: scheduleAndStart };
+    case 'SCHEDULED':
       return { label: 'Start', icon: Play, fn: (id) => api.campaigns.start(id) };
     case 'RUNNING':
       return { label: 'Pause', icon: Pause, fn: (id) => api.campaigns.pause(id) };
@@ -68,11 +93,13 @@ export default function Workflow() {
       detail.reload();
       campaigns.reload();
     } catch (err) {
-      alert(
+      const detail =
         err instanceof ApiError
-          ? `${action.label} failed: ${err.message}`
-          : `${action.label} failed.`
-      );
+          ? Array.isArray(err.body?.message)
+            ? err.body.message.join(', ')
+            : err.message
+          : null;
+      alert(detail ? `${action.label} failed: ${detail}` : `${action.label} failed.`);
     } finally {
       setBusy(false);
     }

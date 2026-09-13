@@ -44,6 +44,26 @@ import LaunchCampaign from './pages/LaunchCampaign';
 import ImportLeads from './pages/ImportLeads';
 import NotFound from './pages/NotFound';
 
+// Super Admin panel (mounted under /admin/*) — see src/admin/README.md
+import RequireSuperAdmin from './admin/rbac/RequireSuperAdmin.jsx';
+import AdminLogin from './admin/pages/AdminLogin.jsx';
+import AdminLayout from './admin/layout/AdminLayout.jsx';
+import AdminDashboard from './admin/pages/Dashboard.jsx';
+import OrganizationsList from './admin/pages/organizations/OrganizationsList.jsx';
+import OrganizationDetail from './admin/pages/organizations/OrganizationDetail.jsx';
+import AdminUsers from './admin/pages/Users.jsx';
+import AdminCalls from './admin/pages/Calls.jsx';
+import AdminSubscriptions from './admin/pages/Subscriptions.jsx';
+import AdminPlans from './admin/pages/Plans.jsx';
+import AdminBilling from './admin/pages/Billing.jsx';
+import AdminUsage from './admin/pages/Usage.jsx';
+import AdminCogs from './admin/pages/Cogs.jsx';
+import AdminAnalytics from './admin/pages/Analytics.jsx';
+import AdminRolesPermissions from './admin/pages/RolesPermissions.jsx';
+import AdminNotifications from './admin/pages/Notifications.jsx';
+import AdminAuditLogs from './admin/pages/AuditLogs.jsx';
+import AdminSystemSettings from './admin/pages/SystemSettings.jsx';
+
 // Old top-level app paths → their new /app/* home, so existing links/bookmarks
 // keep working. `/integrations` is intentionally absent — it now belongs to the
 // marketing site; the app's own page is `/app/integrations`.
@@ -148,6 +168,34 @@ export default function App() {
               <Route path="integrations" element={<Integrations />} />
               <Route path="launch-campaign" element={<LaunchCampaign />} />
               <Route path="import-leads" element={<ImportLeads />} />
+            </Route>
+
+            {/* Super Admin — its own login, separate from the customer auth funnel */}
+            <Route path="/admin/login" element={<AdminLogin />} />
+            <Route
+              path="/admin"
+              element={
+                <RequireSuperAdmin>
+                  <AdminLayout />
+                </RequireSuperAdmin>
+              }
+            >
+              <Route index element={<Navigate to="/admin/dashboard" replace />} />
+              <Route path="dashboard" element={<AdminDashboard />} />
+              <Route path="organizations" element={<OrganizationsList />} />
+              <Route path="organizations/:orgId" element={<OrganizationDetail />} />
+              <Route path="users" element={<AdminUsers />} />
+              <Route path="calls" element={<AdminCalls />} />
+              <Route path="subscriptions" element={<AdminSubscriptions />} />
+              <Route path="plans" element={<AdminPlans />} />
+              <Route path="billing" element={<AdminBilling />} />
+              <Route path="usage" element={<AdminUsage />} />
+              <Route path="cogs" element={<AdminCogs />} />
+              <Route path="analytics" element={<AdminAnalytics />} />
+              <Route path="roles" element={<AdminRolesPermissions />} />
+              <Route path="notifications" element={<AdminNotifications />} />
+              <Route path="audit-logs" element={<AdminAuditLogs />} />
+              <Route path="settings" element={<AdminSystemSettings />} />
             </Route>
 
             {/* Legacy redirects: /dashboard → /app/dashboard, etc. */}

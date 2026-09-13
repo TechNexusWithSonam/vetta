@@ -77,9 +77,18 @@ serve it from an allowed origin or set `VITE_API_BASE_URL`.
 `src/context/useAuth.js`) drives the session:
 
 - On load it hydrates the user via `GET /auth/me` if a token is stored.
-- `useAuth().login` / `.register` / `.logout` wrap `api.auth.*` and update state.
-- `src/components/RequireAuth.jsx` guards every private route; `src/pages/Auth.jsx`
-  is the real login/register form; `AppLayout` shows the user + a logout button.
+- `useAuth()` wraps `api.auth.*` (`login` / `register` / `logout` / `verifyEmail` /
+  `forgotPassword` / `resetPassword` / `resendVerification`) and exposes the
+  `needsVerification` / `onboardingComplete` gates.
+- Guards: `src/components/RequireAuth.jsx` (private app), `RequireSession.jsx`
+  (`/verify-email`, `/onboarding`), `RedirectIfAuthed.jsx` (`/login`, `/signup`,
+  `/forgot-password`). The auth screens live in `src/pages/{SignUp,LogIn,
+  ForgotPassword,ResetPassword,VerifyEmail,Onboarding}.jsx` on the shared shell
+  in `src/auth/`. `AppLayout` shows the user + a logout button.
+
+The deployed backend only implements `register` / `login` / `refresh` / `logout`
+/ `me`. The password-reset and email-verification screens call the conventional
+`/auth/*` routes and degrade gracefully (privacy-preserving) until those ship.
 
 Other domains are **not** wired to pages yet — point a page at `api.*` when
 you're ready to make it live.

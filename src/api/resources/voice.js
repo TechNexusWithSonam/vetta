@@ -34,6 +34,16 @@ export const voice = {
       return http.post(`/voice/calls/${voiceCallId}/cancel`, undefined, options);
     },
 
+    /**
+     * Force an immediate provider status + transcript sync for this call.
+     * The backend normally reconciles calls on a background poll; this makes
+     * the Live Calls page reflect a just-finished call without waiting.
+     * Returns the up-to-date call. No-op (returns as-is) once terminal.
+     */
+    sync(voiceCallId, options) {
+      return http.post(`/voice/calls/${voiceCallId}/sync`, undefined, options);
+    },
+
     /** @param {string} callbackAt ISO timestamp. Sets status CALLBACK_SCHEDULED. */
     scheduleCallback(voiceCallId, callbackAt, options) {
       return http.post(`/voice/calls/${voiceCallId}/callback`, { callbackAt }, options);

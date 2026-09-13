@@ -2,8 +2,14 @@ import React, { useMemo, useState } from 'react';
 import { Calendar, Clock, Video, User, FileText, CheckCircle2, RefreshCcw } from 'lucide-react';
 import { api } from '../api';
 import { useAsync } from '../hooks/useAsync';
-import { ErrorState, EmptyState, Skeleton } from '../components/ui';
+import { useAuth } from '../context/useAuth';
+import { canManageCalls } from '../lib/roles';
+import { ErrorState, EmptyState, Skeleton, Button } from '../components/ui';
 import { humanize, dateTime, relativeTime, personName, num } from '../lib/format';
+import RescheduleMeetingModal from '../components/calling/RescheduleMeetingModal';
+import CancelMeetingDialog from '../components/calling/CancelMeetingDialog';
+
+const NOT_RESCHEDULABLE = ['CANCELLED', 'COMPLETED'];
 
 const STATUS_STYLES = {
   PENDING: 'bg-amber-50 text-amber-700 border-amber-200',
@@ -17,7 +23,11 @@ const STATUS_STYLES = {
 const startOf = (m) => m.startTime || m.startTimeIso || m.startAt || m.scheduledStartAt || m.createdAt;
 
 export default function Bookings() {
+  const { user } = useAuth();
+  const canManage = canManageCalls(user);
   const [selectedId, setSelectedId] = useState(null);
+  const [rescheduling, setRescheduling] = useState(false);
+  const [cancelling, setCancelling] = useState(false);
 
   const meetings = useAsync(() => api.calendar.meetings.list({ page: 1, limit: 50 }), []);
   const stats = useAsync(() => api.calendar.meetings.stats({ windowDays: 7 }).catch(() => null), []);
@@ -204,13 +214,25 @@ export default function Bookings() {
                       </div>
                     )}
                   </div>
-                  <div
-                    className={`flex items-center text-sm font-medium px-3 py-1 rounded-full border ${
-                      STATUS_STYLES[m.status] || 'bg-slate-100 text-slate-600 border-slate-200'
-                    }`}
-                  >
-                    <CheckCircle2 size={16} className="mr-1.5" />
-                    {humanize(m.status)}
+                  <div className="flex items-center gap-2">
+                    {canManage && !NOT_RESCHEDULABLE.includes(m.status) && (
+                      <Button size="sm" variant="secondary" onClick={() => setRescheduling(true)}>
+                        Reschedule
+                      </Button>
+                    )}
+                    {canManage && m.status !== 'CANCELLED' && m.status !== 'COMPLETED' && (
+                      <Button size="sm" variant="danger" onClick={() => setCancelling(true)}>
+                        Cancel
+                      </Button>
+                    )}
+                    <div
+                      className={`flex items-center text-sm font-medium px-3 py-1 rounded-full border ${
+                        STATUS_STYLES[m.status] || 'bg-slate-100 text-slate-600 border-slate-200'
+                      }`}
+                    >
+                      <CheckCircle2 size={16} className="mr-1.5" />
+                      {humanize(m.status)}
+                    </div>
                   </div>
                 </div>
               </div>
@@ -261,6 +283,27 @@ export default function Bookings() {
           )}
         </div>
       </div>
+
+      <RescheduleMeetingModal
+        open={rescheduling}
+        onClose={() => setRescheduling(false)}
+        meeting={m}
+        onRescheduled={() => {
+          setRescheduling(false);
+          detail.reload();
+          meetings.reload();
+        }}
+      />
+      <CancelMeetingDialog
+        open={cancelling}
+        onClose={() => setCancelling(false)}
+        meeting={m}
+        onCancelled={() => {
+          setCancelling(false);
+          detail.reload();
+          meetings.reload();
+        }}
+      />
     </div>
   );
 }

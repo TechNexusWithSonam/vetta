@@ -1,30 +1,29 @@
 /**
- * Route guard for the private (AppLayout) section. Redirects unauthenticated
- * visitors to `/login`, remembering where they were headed.
+ * Guard for the private app (the `AppLayout` section).
+ *
+ * - Not signed in            → `/login`, remembering the intended path.
+ * - Signed in, email pending → `/verify-email`.
+ * - Signed in, no onboarding → `/onboarding`.
+ * - Otherwise                → render the app.
  */
 
 import React from 'react';
 import { Navigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/useAuth';
+import AuthLoading from '../auth/AuthLoading.jsx';
 
 export default function RequireAuth({ children }) {
-  const { status } = useAuth();
+  const { status, needsVerification, onboardingComplete } = useAuth();
   const location = useLocation();
 
-  if (status === 'loading') {
-    return (
-      <div className="h-screen w-full flex items-center justify-center bg-slate-50">
-        <div className="flex items-center space-x-3 text-slate-500">
-          <span className="w-4 h-4 rounded-full border-2 border-slate-300 border-t-indigo-600 animate-spin" />
-          <span className="text-sm font-medium">Loading your workspace…</span>
-        </div>
-      </div>
-    );
-  }
+  if (status === 'loading') return <AuthLoading />;
 
   if (status !== 'authenticated') {
     return <Navigate to="/login" replace state={{ from: location }} />;
   }
+
+  if (needsVerification) return <Navigate to="/verify-email" replace />;
+  if (!onboardingComplete) return <Navigate to="/onboarding" replace />;
 
   return children;
 }
