@@ -16,15 +16,21 @@ import {
   CalendarPlus,
   FileAudio,
   ShieldOff,
-  PhoneCall
+  PhoneCall,
+  CheckCircle2,
+  TrendingUp,
+  GitBranch,
+  Target
 } from 'lucide-react';
 import { api, ApiError } from '../api';
 import { useAsync } from '../hooks/useAsync';
 import { useDncPhones } from '../hooks/useDncPhones';
+import { useLiveTranscript } from '../hooks/useLiveTranscript';
 import { useAuth } from '../context/useAuth';
 import { canManageCalls } from '../lib/roles';
+import { placeCall } from '../lib/placeCall';
 import { ErrorState, EmptyState, Skeleton, Badge, Button, Tooltip, useToast } from '../components/ui';
-import { humanize, relativeTime, personName, num, pct, money, duration as fmtDuration } from '../lib/format';
+import { humanize, relativeTime, timeOnly, personName, num, pct, money, duration as fmtDuration } from '../lib/format';
 import CallbackModal from '../components/calling/CallbackModal';
 import OutcomeModal from '../components/calling/OutcomeModal';
 import RecordingSection from '../components/calling/RecordingSection';
@@ -56,6 +62,33 @@ const STATUS_TONE = {
   DO_NOT_CALL: 'danger'
 };
 
+// Buying-intent read from the realtime conversation bridge (backend
+// VoiceCall.currentIntent) — distinct from call status, tracks how
+// interested the prospect sounds, not connectivity.
+const INTENT_TONE = {
+  UNKNOWN: 'neutral',
+  LOW_INTEREST: 'neutral',
+  CURIOUS: 'info',
+  INTERESTED: 'info',
+  HIGH_INTENT: 'warning',
+  READY_TO_BOOK: 'success',
+  NOT_INTERESTED: 'danger'
+};
+
+const OUTCOME_TONE = {
+  MEETING_BOOKED: 'success',
+  INTERESTED: 'info',
+  CALLBACK_REQUESTED: 'info',
+  QUALIFIED_NO_MEETING: 'info',
+  NOT_INTERESTED: 'danger',
+  NOT_A_FIT: 'danger',
+  BUSY: 'warning',
+  WRONG_NUMBER: 'danger',
+  NO_ANSWER: 'neutral',
+  FAILED: 'danger',
+  BOOKING_FAILED: 'danger'
+};
+
 /** Classify a transcript turn's speaker without ever *guessing* it's the agent. */
 function speakerRole(turn) {
   const who = String(turn.speaker || turn.role || turn.from || '').trim();
@@ -66,45 +99,108 @@ function speakerRole(turn) {
 }
 
 function Transcript({ callId, poll }) {
-  const t = useAsync(() => api.voice.calls.transcript(callId), [callId]);
-  const reload = t.reload;
+  const { turns, loading, unavailable, reconnecting, reload } = useLiveTranscript(callId, { live: poll });
+  const scrollRef = useRef(null);
+  const [pinnedToBottom, setPinnedToBottom] = useState(true);
+  const [showNewPill, setShowNewPill] = useState(false);
+  const [renderedCount, setRenderedCount] = useState(0);
+
+  const onScroll = () => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const nearBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
+    setPinnedToBottom(nearBottom);
+    if (nearBottom) setShowNewPill(false);
+  };
+
+  // Decide what a new batch of turns means *during render* (adjusting state
+  // in response to a prop/derived-value change is the sanctioned pattern for
+  // this — no refs involved here, only state).
+  if (turns.length !== renderedCount) {
+    const grew = turns.length > renderedCount;
+    setRenderedCount(turns.length);
+    if (grew && !pinnedToBottom) setShowNewPill(true);
+  }
+
+  // The actual DOM scroll mutation is the imperative-external-system part,
+  // so it belongs in an effect — this one never calls setState, only reads
+  // the ref/DOM, so it's exempt from the "no setState in effects" rule.
   useEffect(() => {
-    if (!poll) return undefined;
-    const id = setInterval(() => {
-      if (!document.hidden) reload(); // paused while the tab is backgrounded
-    }, 5000);
-    return () => clearInterval(id);
-  }, [poll, reload]);
+    if (!pinnedToBottom) return;
+    const el = scrollRef.current;
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [turns.length, pinnedToBottom]);
 
-  const turns = Array.isArray(t.data) ? t.data : t.data?.turns ?? [];
+  if (loading) return <Skeleton className="h-40 w-full" />;
 
-  if (t.loading) return <Skeleton className="h-40 w-full" />;
-  if (t.error) return <ErrorState error={t.error} onRetry={t.reload} compact />;
-  if (turns.length === 0) return <p className="text-sm text-slate-400">No transcript turns yet.</p>;
+  if (unavailable) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-slate-400">Conversation transcript is currently unavailable.</p>
+        <Button size="sm" variant="secondary" iconLeft={RefreshCcw} onClick={reload}>
+          Try again
+        </Button>
+      </div>
+    );
+  }
 
   return (
-    <div className="space-y-4">
-      {turns.map((turn, i) => {
-        const role = speakerRole(turn);
-        const rawWho = turn.speaker || turn.role || turn.from;
-        const who = rawWho || (role === 'unknown' ? 'Unknown speaker' : role);
-        const text = turn.text || turn.content || turn.message || '';
-        const align = role === 'lead' ? 'items-end' : role === 'unknown' ? 'items-center' : 'items-start';
-        const labelColor =
-          role === 'agent' ? 'text-indigo-600' : role === 'lead' ? 'text-emerald-600' : 'text-slate-400';
-        const bubble =
-          role === 'agent'
-            ? 'bg-indigo-50 border-indigo-100 rounded-tl-none self-start'
-            : role === 'lead'
-              ? 'bg-slate-100 border-slate-200 rounded-tr-none self-end'
-              : 'bg-white border-dashed border-slate-300 self-center';
-        return (
-          <div key={i} className={`flex flex-col ${align}`}>
-            <span className={`text-xs font-semibold mb-1 ${labelColor}`}>{humanize(who)}</span>
-            <p className={`text-sm p-3 rounded-lg border max-w-[85%] text-slate-800 ${bubble}`}>{text}</p>
-          </div>
-        );
-      })}
+    <div className="relative flex flex-col flex-1 min-h-0">
+      {poll && (
+        <div className="mb-2 flex justify-end shrink-0">
+          <Badge tone={reconnecting ? 'warning' : 'success'} dot className={reconnecting ? '' : 'animate-pulse'}>
+            {reconnecting ? 'Reconnecting…' : 'Live'}
+          </Badge>
+        </div>
+      )}
+
+      <div ref={scrollRef} onScroll={onScroll} className="flex-1 min-h-0 overflow-y-auto space-y-4 pr-1">
+        {turns.length === 0 ? (
+          <p className="text-sm text-slate-400">
+            {poll ? 'Waiting for conversation updates…' : 'No transcript was recorded for this call.'}
+          </p>
+        ) : (
+          turns.map(({ key, raw: turn }) => {
+            const role = speakerRole(turn);
+            const rawWho = turn.speaker || turn.role || turn.from;
+            const who = rawWho || (role === 'unknown' ? 'Unknown speaker' : role);
+            const text = turn.text || turn.content || turn.message || '';
+            const interim = /^(interim|partial|in_progress)$/i.test(String(turn.status || ''));
+            const when = timeOnly(turn.timestamp || turn.createdAt);
+            const align = role === 'lead' ? 'items-end' : role === 'unknown' ? 'items-center' : 'items-start';
+            const labelColor =
+              role === 'agent' ? 'text-indigo-600' : role === 'lead' ? 'text-emerald-600' : 'text-slate-400';
+            const bubble =
+              role === 'agent'
+                ? 'bg-indigo-50 border-indigo-100 rounded-tl-none self-start'
+                : role === 'lead'
+                  ? 'bg-slate-100 border-slate-200 rounded-tr-none self-end'
+                  : 'bg-white border-dashed border-slate-300 self-center';
+            return (
+              <div key={key} className={`flex flex-col ${align} ${interim ? 'opacity-60' : ''}`}>
+                <span className={`text-xs font-semibold mb-1 ${labelColor}`}>{humanize(who)}</span>
+                <p className={`text-sm p-3 rounded-lg border max-w-[85%] text-slate-800 ${bubble} ${interim ? 'italic' : ''}`}>
+                  {text}
+                </p>
+                {when && <span className="text-[10px] text-slate-400 mt-1">{when}</span>}
+              </div>
+            );
+          })
+        )}
+      </div>
+
+      {showNewPill && (
+        <button
+          onClick={() => {
+            const el = scrollRef.current;
+            if (el) el.scrollTop = el.scrollHeight;
+            setShowNewPill(false);
+          }}
+          className="absolute bottom-2 left-1/2 -translate-x-1/2 px-3 py-1 text-xs font-medium rounded-full bg-indigo-600 text-white shadow-md hover:bg-indigo-700"
+        >
+          New messages ↓
+        </button>
+      )}
     </div>
   );
 }
@@ -141,10 +237,11 @@ function EventTimeline({ events, loading, error, onRetry }) {
 }
 
 /** Details for one selected call — works for live *and* finished calls. */
-function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onDataChanged }) {
+function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onDataChanged, onCallAgain, dncPhones }) {
   const live = LIVE.includes(call.status);
   const inFlight = IN_FLIGHT.includes(call.status);
   const isTerminal = !inFlight;
+  const toast = useToast();
 
   // Single source of truth for this call's events: both the timeline and the
   // AI-summary extraction below read from this one polled fetch.
@@ -167,12 +264,45 @@ function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onD
     return withSummary?.payload || null;
   }, [eventRows]);
 
+  // The structured, AI-generated post-call summary (pain points, objections,
+  // qualification, outcome, next action) — generated asynchronously right
+  // after a call ends, so poll briefly while terminal and not yet ready.
+  const outcomeSummary = useAsync(() => api.voice.calls.summary(call.id), [call.id]);
+  const reloadOutcomeSummary = outcomeSummary.reload;
+  const hasOutcomeSummary = Boolean(outcomeSummary.data);
+  useEffect(() => {
+    if (!isTerminal || hasOutcomeSummary) return undefined;
+    const id = setInterval(() => {
+      if (!document.hidden) reloadOutcomeSummary();
+    }, 4000);
+    return () => clearInterval(id);
+  }, [isTerminal, hasOutcomeSummary, reloadOutcomeSummary]);
+
   const [showCallback, setShowCallback] = useState(false);
   const [showOutcome, setShowOutcome] = useState(false);
   const [showBooking, setShowBooking] = useState(false);
+  const [callingAgain, setCallingAgain] = useState(false);
 
   const name = personName(lead) !== '—' ? personName(lead) : call.toPhoneNumber || 'Unknown';
   const canScheduleCallback = NOT_REACHED.includes(call.status);
+  const redialNumber = lead?.phone || call.toPhoneNumber || call.phoneNumber || '';
+  const onDnc = Boolean(redialNumber && dncPhones?.has(redialNumber));
+  const canCallAgain = Boolean(call.leadId);
+
+  const callAgain = async () => {
+    if (!canManage || !canCallAgain || onDnc || callingAgain) return;
+    if (!window.confirm(`Place a real call to ${name}${redialNumber ? ` at ${redialNumber}` : ''}?`)) return;
+    setCallingAgain(true);
+    try {
+      const created = await placeCall({ leadId: call.leadId, campaignId: call.campaignId });
+      toast.success('Call started.');
+      onCallAgain?.(created);
+    } catch (err) {
+      toast.error(err instanceof ApiError ? `Could not start call: ${err.message}` : 'Could not start call.');
+    } finally {
+      setCallingAgain(false);
+    }
+  };
 
   return (
     <>
@@ -229,6 +359,27 @@ function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onD
             <Tooltip label="View call outcome">
               <Button size="sm" variant="secondary" iconLeft={FileAudio} onClick={() => setShowOutcome(true)}>
                 Outcome
+              </Button>
+            </Tooltip>
+          )}
+          {canCallAgain && canManage && (
+            <Tooltip label={onDnc ? 'This number is on the Do-Not-Call list' : `Place a new call to ${name}`}>
+              <Button
+                size="sm"
+                variant="secondary"
+                iconLeft={PhoneCall}
+                onClick={callAgain}
+                disabled={onDnc || callingAgain}
+                loading={callingAgain}
+              >
+                Call again
+              </Button>
+            </Tooltip>
+          )}
+          {canCallAgain && !canManage && (
+            <Tooltip label="Only owners/admins can place calls">
+              <Button size="sm" variant="secondary" iconLeft={PhoneCall} disabled>
+                Call again
               </Button>
             </Tooltip>
           )}
@@ -297,10 +448,88 @@ function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onD
             ))}
           </div>
 
-          {summary && (
+          <div className="bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex flex-wrap items-center gap-2">
+            <span className="text-[11px] text-slate-500 font-semibold uppercase flex items-center gap-1 mr-1">
+              <TrendingUp size={12} /> Intent
+            </span>
+            <Badge tone={INTENT_TONE[call.currentIntent] || 'neutral'}>
+              {humanize(call.currentIntent || 'UNKNOWN')}
+            </Badge>
+            <span className="text-[11px] text-slate-500 font-semibold uppercase flex items-center gap-1 ml-3 mr-1">
+              <GitBranch size={12} /> Stage
+            </span>
+            <Badge tone="neutral">{humanize(call.currentState || 'GREETING')}</Badge>
+          </div>
+
+          {call.meetingBooked && (
+            <div className="bg-emerald-50 p-4 rounded-lg border border-emerald-200 flex items-start gap-2">
+              <CheckCircle2 size={16} className="text-emerald-600 mt-0.5 shrink-0" />
+              <div>
+                <p className="text-sm font-semibold text-emerald-800">Meeting booked</p>
+                <p className="text-xs text-emerald-700">
+                  {call.meetingId ? `Linked meeting: ${call.meetingId}` : 'Confirmed for this call.'}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {outcomeSummary.data ? (
+            <div className="bg-white p-4 rounded-lg border border-indigo-100 shadow-sm space-y-3">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <p className="text-[11px] text-indigo-600 font-semibold uppercase flex items-center gap-1">
+                  <Sparkles size={12} /> AI Summary
+                </p>
+                <Badge tone={OUTCOME_TONE[outcomeSummary.data.outcome] || 'neutral'}>
+                  {humanize(outcomeSummary.data.outcome)}
+                </Badge>
+              </div>
+              <p className="text-sm text-slate-700">{outcomeSummary.data.summary}</p>
+              {outcomeSummary.data.painPoints?.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-slate-500 font-semibold uppercase mb-1 flex items-center gap-1">
+                    <Target size={12} /> Pain points
+                  </p>
+                  <ul className="text-sm text-slate-700 list-disc pl-4 space-y-0.5">
+                    {outcomeSummary.data.painPoints.map((p, i) => (
+                      <li key={i}>{p.text}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {outcomeSummary.data.objections?.length > 0 && (
+                <div>
+                  <p className="text-[11px] text-slate-500 font-semibold uppercase mb-1">Objections</p>
+                  <ul className="text-sm text-slate-700 list-disc pl-4 space-y-0.5">
+                    {outcomeSummary.data.objections.map((o, i) => (
+                      <li key={i}>
+                        {humanize(o.type)}: {o.response}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {outcomeSummary.data.nextAction && (
+                <p className="text-xs text-slate-500">
+                  <span className="font-semibold">Next action:</span> {outcomeSummary.data.nextAction}
+                </p>
+              )}
+            </div>
+          ) : (
+            isTerminal &&
+            !outcomeSummary.loading && (
+              <div className="bg-white p-4 rounded-lg border border-slate-200 shadow-sm">
+                <p className="text-[11px] text-slate-500 font-semibold uppercase mb-1 flex items-center gap-1">
+                  <Sparkles size={12} /> AI Summary
+                </p>
+                <p className="text-sm text-slate-500">Generating summary…</p>
+              </div>
+            )
+          )}
+
+          {!outcomeSummary.data && summary && (
             <div className="bg-white p-4 rounded-lg border border-indigo-100 shadow-sm">
               <p className="text-[11px] text-indigo-600 font-semibold uppercase mb-1 flex items-center gap-1">
-                <Sparkles size={12} /> AI Summary
+                <Sparkles size={12} /> Provider notes
                 {summary.sentiment && (
                   <span className="ml-1 font-normal text-slate-400">· {humanize(summary.sentiment)}</span>
                 )}
@@ -334,8 +563,8 @@ function CallDetail({ call, lead, onEnd, ending, onSync, syncing, canManage, onD
           </div>
         </div>
 
-        <div className="w-full md:w-1/2 p-6 overflow-y-auto bg-white flex flex-col">
-          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4">
+        <div className="w-full md:w-1/2 p-6 bg-white flex flex-col min-h-0">
+          <h3 className="text-sm font-bold text-slate-800 uppercase tracking-wider mb-4 shrink-0">
             {live ? 'Live Transcript' : 'Transcript'}
           </h3>
           <Transcript callId={call.id} poll={inFlight} />
@@ -520,6 +749,11 @@ export default function LiveCalls() {
     calls.reload();
   };
 
+  const handleCallAgain = (created) => {
+    setSelectedId(created.id);
+    calls.reload();
+  };
+
   return (
     <div className="h-full flex flex-col space-y-6">
       {/* Top Status Bar */}
@@ -677,6 +911,8 @@ export default function LiveCalls() {
               syncing={syncing}
               canManage={canManage}
               onDataChanged={calls.reload}
+              onCallAgain={handleCallAgain}
+              dncPhones={dncPhones}
             />
           ) : (
             <div className="flex-1 flex flex-col items-center justify-center text-slate-500 bg-slate-50 p-6 text-center">

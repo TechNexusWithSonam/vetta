@@ -4,7 +4,7 @@ Platform-operator UI mounted at `/admin/*` (see the route block in `src/App.jsx`
 
 ## Access
 
-Super Admin has its own sign-in page, `pages/AdminLogin.jsx` at `/admin/login` — separate from the customer `/login` screen and independent of the customer email-verification/onboarding funnel (`RequireAuth`). It authenticates against the same backend (`POST /auth/login` via `useAuth().login()`, same token storage), so it's a real account + real password — just its own page. After a successful login, `rbac/RequireSuperAdmin.jsx` (and the login page itself) checks a **temporary, client-side-only** email allow-list (`VITE_SUPER_ADMIN_EMAILS`, see `.env.example` and `rbac/superAdminGate.js`); anyone else is signed back out with a "not authorized" message. This is not server-enforced — see `BACKEND_ISSUES.md` #9 for what the backend needs to ship before this is production-secure.
+Super Admin has its own sign-in page, `pages/AdminLogin.jsx` at `/admin/login` — separate from the customer `/login` screen and independent of the customer email-verification/onboarding funnel (`RequireAuth`). It authenticates against the same backend (`POST /auth/login` via `useAuth().login()`, same token storage), so it's a real account + real password — just its own page. After a successful login, `rbac/RequireSuperAdmin.jsx` (and the login page itself) checks a **temporary, client-side-only** email allow-list (`VITE_SUPER_ADMIN_EMAILS`, see `.env.example` and `rbac/superAdminGate.js`); anyone else is signed back out with a "not authorized" message. This is not server-enforced — see `BACKEND_ISSUES.md` #10 for what the backend needs to ship before this is production-secure.
 
 ## Data
 
@@ -23,4 +23,4 @@ The backend has no cross-tenant `/admin/*` endpoints yet. Every `src/api/resourc
 
 - Impersonation ("login as organization") is intentionally not implemented — the Organizations table shows a disabled action pending a secure backend token-exchange flow.
 - Roles & Permissions changes are audit-logged but not yet enforced server-side (see the banner on that page).
-- See `BACKEND_ISSUES.md` #9 for the full backend contract this module is written against.
+- See `BACKEND_ISSUES.md` #10 for the full backend contract this module is written against.

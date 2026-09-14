@@ -51,6 +51,14 @@ export function dateTime(value) {
   )}`;
 }
 
+/** "2:20 PM" — short time label for chat-bubble timestamps. */
+export function timeOnly(value) {
+  if (!value) return '';
+  const d = new Date(value);
+  if (Number.isNaN(d.getTime())) return '';
+  return d.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+}
+
 /** Full name from a lead/contact-ish object, falling back to email. */
 export const personName = (p) =>
   [p?.firstName, p?.lastName].filter(Boolean).join(' ') || p?.name || p?.email || '—';

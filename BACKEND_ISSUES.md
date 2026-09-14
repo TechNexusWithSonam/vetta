@@ -187,6 +187,42 @@ Call-strategy generation's retry/error handling was also brought up to the
 same standard (error-code taxonomy, stale-`PROCESSING` sweep, a structural
 quality gate before publish) as part of the same change.
 
+**Status (2026-09-13) — this now fully blocks real call placement, not just research:**
+Re-tested end-to-end against **both** `http://localhost:3000` (local dev backend)
+and the hosted deployment while trying to place a genuine test call from the
+frontend:
+
+```bash
+POST /research {leadId, type:"COMPANY_RESEARCH"}
+# -> 503 { "message": "Research queue is unavailable. The job could not be
+#          handed to a worker." }
+
+POST /call-strategies {leadId}
+# -> 422 { "message": "No completed AI research found for this lead --
+#          run research first" }
+
+POST /voice/calls {leadId}
+# -> 422 { "message": "No published call strategy or campaign script
+#          available to brief the voice agent" }
+
+GET /health  -> 500 Internal server error (both environments)
+```
+
+Two things worth separating: on the hosted deployment the job enqueues
+(`201 PENDING`) and then never drains (the original repro above); on the
+**local** dev backend, `POST /research` doesn't even accept the job — it
+503s immediately with "could not be handed to a worker," implying Redis/the
+queue connection itself isn't up locally, not just "no consumer process."
+Same failure class (no working job pipeline), different symptom — worth
+checking both when validating the fix on branch `fix/empty-dist-on-rebuild`.
+
+**Net effect:** the entire research → call-strategy → voice-call chain is
+unreachable end-to-end right now, in every environment tested. A real
+outbound call cannot currently be placed through the app at all (not a
+frontend bug — `POST /voice/calls` itself 422s for the correct, documented
+reason: there is no way to produce a published brief without a working
+research pipeline).
+
 ---
 
 ### 4. `GET /health` → 503 on the deployment
@@ -259,7 +295,7 @@ curl -s -i -X OPTIONS https://vetta-backend.vercel.app/auth/login \
 
 ---
 
-### 9. Super Admin panel needs a real platform role + `/admin/*` endpoints
+### 10. Super Admin panel needs a real platform role + `/admin/*` endpoints
 
 The frontend now ships a Super Admin panel (`src/admin/`, mounted at `/admin/*`) for platform-level operations: organizations, users, calls, subscriptions, plans, billing, usage, COGS, analytics, roles/permissions, audit logs, and system settings. Today it is gated **client-side only** by an email allow-list (`VITE_SUPER_ADMIN_EMAILS`, see `src/admin/rbac/superAdminGate.js`) because:
 
@@ -283,6 +319,23 @@ The frontend now ships a Super Admin panel (`src/admin/`, mounted at `/admin/*`)
    `GET/PATCH /admin/roles|/permissions[/:id/permissions]`,
    `GET/PATCH /admin/settings/general|security`.
 3. Once shipped, the frontend needs **no changes** — every `src/api/resources/admin*.js` function already calls the real path first and only falls back to mock data on a 404/405/501/502/503 (see `src/admin/lib/mockFallback.js`). Flip `src/admin/rbac/superAdminGate.js`'s `isSuperAdmin()` to check the real role once it exists.
+
+---
+
+### 11. No real-time transcript delivery mechanism; turn shape undocumented
+
+The only documented Retell/Bland webhooks are terminal (`call_ended` / `call.completed`) — there is no per-turn/streaming webhook, and no WebSocket/SSE channel exists anywhere in the API contract. The frontend's only available option is polling `GET /voice/calls/:id/transcript` plus forcing a refresh via `POST /voice/calls/:id/sync`, on a short interval, while a call is in progress (see `src/hooks/useLiveTranscript.js`).
+
+Worth noting: `transcript`, `sync`, `events`, `outcome`, and `calls.create` are **not** in this document's "confirmed working" list below — they require placing a real phone call, which the automated audit script can't safely do (the Postman collection marks call-placement "REAL CALL - MANUAL ONLY"). So there is no automated confirmation these endpoints return real data during a live call today.
+
+This needs backend confirmation/work on two fronts:
+
+1. **Turn shape.** The Postman collection gives zero example responses for Get Call Transcript / Get Call Events / Get Call Outcome. We need a documented shape for each transcript turn — specifically whether turns carry a stable `id`, a `status` (e.g. `interim`/`final`), and which field(s) carry speaker identity (`speaker`/`role`/`from` are all currently tolerated client-side since the real field name is unconfirmed).
+2. **Whether `sync()` is synchronous.** Issue #3b already documents that BullMQ background workers never run on this Vercel deployment, so anything *queued* rather than processed inline never completes. If transcript ingestion on `sync()`/webhook receipt depends on a queued job rather than something synchronous in the request handler, transcripts will never populate in production regardless of how aggressively the frontend polls — this is indistinguishable from "the frontend isn't polling right" without server-side confirmation.
+
+Once either of the above is confirmed/changed, a push mechanism (SSE/WebSocket) would let the frontend drop polling entirely — today only the polling fallback is available from this repo.
+
+**Frontend workaround in place:** 5s polling of `transcript()` while a call is in-flight (paused when the tab is hidden), with dedup by `id` (falling back to `timestamp+speaker+content`) and a "Reconnecting…" indicator after 2 consecutive failed polls, so a slow/unstable backend degrades gracefully instead of showing broken UI.
 
 ---
 

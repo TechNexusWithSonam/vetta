@@ -68,6 +68,17 @@ export const voice = {
     outcome(voiceCallId, options) {
       return http.get(`/voice/calls/${voiceCallId}/outcome`, options);
     },
+
+    /**
+     * AI-generated call summary — `null` until CallSummaryService has
+     * processed the finalized call (usually within seconds of it ending).
+     * `{ summary, painPoints: {text,category}[], objections: {type,response}[],
+     * qualification: Record<string,string>, finalIntent, outcome, nextAction,
+     * generatedAt } | null`
+     */
+    summary(voiceCallId, options) {
+      return http.get(`/voice/calls/${voiceCallId}/summary`, options);
+    },
   },
 
   doNotCall: {

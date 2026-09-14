@@ -11,6 +11,7 @@ import {
   Pencil,
   Trash2,
   CalendarPlus,
+  Plus,
   X
 } from 'lucide-react';
 import { api, ApiError } from '../api';
@@ -255,6 +256,129 @@ function LeadEditModal({ lead, onClose, onSaved }) {
   );
 }
 
+const EMPTY_LEAD_FORM = {
+  firstName: '',
+  lastName: '',
+  email: '',
+  company: '',
+  title: '',
+  phone: '',
+  linkedinUrl: '',
+  status: 'NEW',
+  source: 'MANUAL'
+};
+
+/** Modal for creating a lead via `POST /leads`. Only `email` is required. */
+function LeadCreateModal({ onClose, onCreated }) {
+  const [form, setForm] = useState(EMPTY_LEAD_FORM);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  const set = (key) => (e) => setForm((f) => ({ ...f, [key]: e.target.value }));
+
+  const save = async () => {
+    const email = form.email.trim();
+    if (!email) {
+      setError('Email is required.');
+      return;
+    }
+
+    setSaving(true);
+    setError('');
+
+    const payload = { email, status: form.status, source: form.source };
+    for (const [key] of EDIT_TEXT_FIELDS) {
+      if (key === 'email') continue;
+      const next = form[key].trim();
+      if (next) payload[key] = next;
+    }
+
+    try {
+      const created = await api.leads.create(payload);
+      onCreated(created);
+    } catch (err) {
+      setError(errText(err, 'Could not create this lead.'));
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center bg-slate-900/40 p-4"
+      onClick={onClose}
+    >
+      <div
+        className="w-full max-w-lg bg-white rounded-xl shadow-xl border border-slate-200"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex items-center justify-between px-6 py-4 border-b border-slate-200">
+          <h3 className="font-semibold text-slate-800">Add lead</h3>
+          <button onClick={onClose} className="text-slate-400 hover:text-slate-600">
+            <X size={18} />
+          </button>
+        </div>
+
+        <div className="p-6 grid grid-cols-1 sm:grid-cols-2 gap-4 max-h-[60vh] overflow-y-auto">
+          {EDIT_TEXT_FIELDS.map(([key, label]) => (
+            <label key={key} className="text-sm">
+              <span className="block text-xs font-medium text-slate-600 mb-1">
+                {label}
+                {key === 'email' && <span className="text-rose-500"> *</span>}
+              </span>
+              <input
+                type={key === 'email' ? 'email' : 'text'}
+                value={form[key]}
+                onChange={set(key)}
+                className={inputClass}
+              />
+            </label>
+          ))}
+          <label className="text-sm">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Status</span>
+            <select value={form.status} onChange={set('status')} className={inputClass}>
+              {STATUSES.map((s) => (
+                <option key={s} value={s}>
+                  {humanize(s)}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="text-sm">
+            <span className="block text-xs font-medium text-slate-600 mb-1">Source</span>
+            <select value={form.source} onChange={set('source')} className={inputClass}>
+              {SOURCES.map((s) => (
+                <option key={s} value={s}>
+                  {humanize(s)}
+                </option>
+              ))}
+            </select>
+          </label>
+        </div>
+
+        {error && <p className="px-6 pb-1 text-sm text-rose-600">{error}</p>}
+
+        <div className="flex justify-end gap-2 px-6 py-4 border-t border-slate-200">
+          <button
+            onClick={onClose}
+            disabled={saving}
+            className="px-4 py-2 text-sm border border-slate-200 rounded-lg hover:bg-slate-50 disabled:opacity-50"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 text-sm bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 disabled:opacity-50 inline-flex items-center gap-1"
+          >
+            {saving && <Loader2 size={14} className="animate-spin" />}
+            Add lead
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export default function Leads() {
   const navigate = useNavigate();
   const { user } = useAuth();
@@ -304,6 +428,7 @@ export default function Leads() {
   const rangeEnd = Math.min(page * PAGE_SIZE, total);
 
   const [editing, setEditing] = useState(null);
+  const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [bookingLead, setBookingLead] = useState(null);
 
@@ -336,8 +461,17 @@ export default function Leads() {
             className="w-full pl-10 pr-4 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500"
           />
         </div>
-        <div className="text-sm text-slate-500">
-          {leads.loading ? 'Loading…' : `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`}
+        <div className="flex items-center gap-4">
+          <div className="text-sm text-slate-500">
+            {leads.loading ? 'Loading…' : `${total.toLocaleString()} lead${total === 1 ? '' : 's'}`}
+          </div>
+          <button
+            onClick={() => setCreating(true)}
+            className="inline-flex items-center gap-1.5 px-3.5 py-2 bg-indigo-600 text-white rounded-lg text-sm font-medium hover:bg-indigo-700 transition-colors shadow-sm"
+          >
+            <Plus size={16} />
+            Add lead
+          </button>
         </div>
       </div>
 
@@ -541,6 +675,18 @@ export default function Leads() {
           )}
         </div>
       </div>
+
+      {creating && (
+        <LeadCreateModal
+          onClose={() => setCreating(false)}
+          onCreated={() => {
+            setCreating(false);
+            // Changing page re-runs the query; otherwise reload in place.
+            if (page !== 1) setPage(1);
+            else leads.reload();
+          }}
+        />
+      )}
 
       {editing && (
         <LeadEditModal
