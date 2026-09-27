@@ -1,6 +1,6 @@
 /**
  * Live end-to-end check of the Auth client against the real backend
- * (`https://vetta-backend.vercel.app`), using `AI-SDR-SaaS.postman_collection.json`
+ * (`http://16.16.137.75`), using `AI-SDR-SaaS.postman_collection.json`
  * as the source of truth for shapes, status codes and error handling.
  *
  * It registers a fresh throwaway organization, so it is safe to re-run.

@@ -2,7 +2,7 @@ import { defineConfig, loadEnv } from 'vite'
 import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 
-// The hosted API (https://vetta-backend.vercel.app) only sends CORS headers for
+// The hosted API (http://16.16.137.75) only sends CORS headers for
 // http://localhost:3000, so the browser blocks calls made from the dev server.
 // In dev we call a same-origin `/api/*` path instead and let Vite proxy it to
 // the backend server-side (no CORS involved). Override the target with
@@ -14,7 +14,7 @@ export default defineConfig(({ mode }) => {
   const API_PROXY_TARGET =
     env.VITE_DEV_API_PROXY_TARGET ||
     process.env.VITE_DEV_API_PROXY_TARGET ||
-    'https://vetta-backend.vercel.app'
+    'http://16.16.137.75'
 
   return {
     plugins: [

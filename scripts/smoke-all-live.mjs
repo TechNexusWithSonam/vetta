@@ -1,5 +1,5 @@
 /**
- * Live check of the full API client against `https://vetta-backend.vercel.app`,
+ * Live check of the full API client against `http://16.16.137.75`,
  * with `AI-SDR-SaaS.postman_collection.json` as the source of truth.
  *
  * Registers a fresh throwaway OWNER org, then drives every non-destructive

@@ -14,7 +14,7 @@
  *  3. Otherwise (plain Node tooling, tests): the hosted backend URL directly.
  */
 
-const HOSTED_BASE_URL = 'https://vetta-backend.vercel.app';
+const HOSTED_BASE_URL = 'http://16.16.137.75';
 
 // `import.meta.env` is injected by Vite in the app build; guard it so the
 // module also loads under plain Node (tooling, tests).

@@ -40,7 +40,7 @@ try {
 
 | Concern | Behaviour |
 | --- | --- |
-| Base URL | `VITE_API_BASE_URL` if set, else `/api` in `npm run dev` (proxied — see below) or `https://vetta-backend.vercel.app` in a build. |
+| Base URL | `VITE_API_BASE_URL` if set, else `/api` in `npm run dev` (proxied — see below) or `http://16.16.137.75` in a build. |
 | Success envelope | Unwraps `{ success, data, timestamp }` → returns `data`. Bare arrays/objects pass through. |
 | Errors | Throws `ApiError` mirroring `AllExceptionsFilter` (`statusCode`, `message`, `error`, `path`, `requestId`, …). |
 | Auth | Adds `Authorization: Bearer <accessToken>` from `tokenStore`. `@Public()` routes (auth, health, webhooks) opt out. |
@@ -66,7 +66,7 @@ src/api/
 The hosted backend only returns `Access-Control-Allow-Origin: http://localhost:3000`,
 so a browser on the Vite dev port (`5173`) gets "Failed to fetch" on every call.
 To avoid that, `npm run dev` makes the client call the **same-origin** path
-`/api/*`, and `vite.config.js` proxies `/api` → `https://vetta-backend.vercel.app`
+`/api/*`, and `vite.config.js` proxies `/api` → `http://16.16.137.75`
 server-side (no CORS). Point the proxy at a local backend with
 `VITE_DEV_API_PROXY_TARGET`. A production build calls the hosted URL directly —
 serve it from an allowed origin or set `VITE_API_BASE_URL`.

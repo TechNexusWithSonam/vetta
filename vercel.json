@@ -2,7 +2,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://vetta-backend.vercel.app/:path*"
+      "destination": "http://16.16.137.75/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ]
