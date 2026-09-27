@@ -34,8 +34,10 @@ export function isFreemailDomain(value) {
 }
 
 /**
- * The four visible password rules. Returns them in a stable order with a `met`
- * flag so the UI can render a live checklist.
+ * The visible password rules. Returns them in a stable order with a `met`
+ * flag so the UI can render a live checklist. No uppercase-letter or
+ * special-character rule by design -- a plain lowercase-plus-numbers
+ * password is accepted; length + containing a number is enough.
  * @param {string} password
  * @returns {{ id: string, label: string, met: boolean }[]}
  */
@@ -43,13 +45,7 @@ export function passwordRules(password) {
   const pw = String(password || '');
   return [
     { id: 'length', label: 'At least 8 characters', met: pw.length >= 8 },
-    { id: 'upper', label: 'One uppercase letter', met: /[A-Z]/.test(pw) },
     { id: 'number', label: 'One number', met: /\d/.test(pw) },
-    {
-      id: 'special',
-      label: 'One special character',
-      met: /[^A-Za-z0-9]/.test(pw),
-    },
   ];
 }
 
@@ -59,8 +55,10 @@ export function passwordMeetsPolicy(password) {
 
 /**
  * A 0–4 strength score plus a label and the Tailwind colour token for the meter.
- * Score is the count of satisfied rules, bumped for extra length and variety,
- * capped at 4.
+ * Base score is the count of satisfied rules (0–2); extra length and extra
+ * variety (uppercase/special chars) are rewarded here even though neither is
+ * a hard requirement, so a genuinely strong password can still reach the top
+ * of the meter.
  */
 export function passwordStrength(password) {
   const pw = String(password || '');
@@ -68,7 +66,9 @@ export function passwordStrength(password) {
 
   const rules = passwordRules(pw);
   let score = rules.filter((r) => r.met).length;
-  if (pw.length >= 12 && score >= 3) score = Math.min(4, score + 1);
+  if (pw.length >= 12) score += 1;
+  if (pw.length >= 16 || /[A-Z]/.test(pw) || /[^A-Za-z0-9\s]/.test(pw)) score += 1;
+  score = Math.min(4, score);
   if (pw.length < 8) score = Math.min(score, 1);
 
   const table = [
