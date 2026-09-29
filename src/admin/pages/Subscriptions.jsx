@@ -1,93 +1,102 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Plus } from 'lucide-react';
 import { api } from '../../api';
-import { useAuth } from '../../context/useAuth';
-import { useAdminAsync } from '../lib/useAdminAsync.js';
-import { logAdminAction } from '../lib/auditLog.js';
-import { SectionHeader, DataTable, FilterBar, StatusBadge } from '../components';
-import { Button, ConfirmDialog, useToast } from '../../components/ui';
-import { money, dateTime } from '../../lib/format';
+import { useAdminQuery } from '../lib/useAdminQuery.js';
+import { useDebounced } from '../lib/useDebounced.js';
+import { cleanParams, currency, label } from '../lib/format.js';
+import {
+  SectionHeader, DataTable, FilterBar, StatusBadge, AssignSubscriptionModal, ChangePlanModal, CancelSubscriptionModal,
+} from '../components';
+import { useAdminAccess } from '../rbac/AdminAccessContext.jsx';
+import { PERMISSIONS as P } from '../rbac/permissions.js';
+import { Button } from '../../components/ui';
+import { dateTime } from '../../lib/format';
 
-const STATUS_OPTIONS = ['TRIAL', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'].map((s) => ({ value: s, label: s.replace('_', ' ') }));
+const STATUS_OPTIONS = ['TRIALING', 'ACTIVE', 'PAST_DUE', 'CANCELLED', 'EXPIRED'].map((s) => ({ value: s, label: label(s) }));
 
 export default function AdminSubscriptions() {
-  const { user: actor } = useAuth();
-  const toast = useToast();
+  const { can } = useAdminAccess();
+  const canManage = can(P.SUBSCRIPTIONS_MANAGE);
   const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [planId, setPlanId] = useState('');
   const [page, setPage] = useState(1);
-  const [cancelling, setCancelling] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [modal, setModal] = useState(null); // { type, row? }
   const limit = 10;
+  const debouncedSearch = useDebounced(search);
 
-  const query = useMemo(() => ({ page, limit, search: search || undefined, status: status || undefined }), [page, search, status]);
-  const list = useAdminAsync(() => api.admin.subscriptions.list(query), [JSON.stringify(query)]);
-  const items = list.data?.items || [];
-
-  const confirmCancel = async () => {
-    setSaving(true);
-    try {
-      await api.admin.subscriptions.cancel(cancelling.id, { reason: 'Cancelled by admin' });
-      await logAdminAction({
-        action: 'subscription.cancel', entityType: 'subscription', entityId: cancelling.id, organizationId: cancelling.organizationId,
-        summary: `Cancelled subscription for ${cancelling.organizationName}`, actor,
-      });
-      toast.success('Subscription cancelled');
-      setCancelling(null);
-      list.reload();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to cancel subscription');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const plans = useAdminQuery((signal) => (can(P.PLANS_VIEW) ? api.admin.plans.list({ signal }) : Promise.resolve([])), []);
+  const query = useMemo(
+    () => cleanParams({ page, limit, search: debouncedSearch.trim(), status, planId }),
+    [page, debouncedSearch, status, planId],
+  );
+  const list = useAdminQuery((signal) => api.admin.subscriptions.list(query, { signal }), [query]);
+  const resetPage = (fn) => (v) => { fn(v); setPage(1); };
+  const done = () => { setModal(null); list.reload(); };
 
   const columns = [
-    { key: 'organizationName', header: 'Organization' },
+    { key: 'organizationName', header: 'Organization', render: (s) => (
+      <Link to={`/admin/organizations/${s.organizationId}?tab=subscription`} className="font-medium text-slate-800 hover:text-brand-700 hover:underline">
+        {s.organizationName}
+      </Link>
+    ) },
     { key: 'planName', header: 'Plan' },
-    { key: 'mrr', header: 'MRR', align: 'right', render: (s) => money(s.mrr) },
-    { key: 'startedAt', header: 'Start date', render: (s) => dateTime(s.startedAt) },
-    { key: 'renewsAt', header: 'Renewal date', render: (s) => dateTime(s.renewsAt) },
+    { key: 'billingInterval', header: 'Billing', render: (s) => `${currency(s.price, s.currency)} / ${s.billingInterval === 'ANNUAL' ? 'yr' : 'mo'}` },
+    { key: 'mrr', header: 'MRR', align: 'right', render: (s) => currency(s.mrr, s.currency) },
+    { key: 'startedAt', header: 'Started', render: (s) => dateTime(s.startedAt) },
+    { key: 'currentPeriodEnd', header: 'Period ends', render: (s) => (
+      <span>{dateTime(s.currentPeriodEnd)}{s.cancelAtPeriodEnd && <span className="block text-xs text-amber-600">Cancels at period end</span>}</span>
+    ) },
     { key: 'status', header: 'Status', render: (s) => <StatusBadge status={s.status} domain="subscription" /> },
-    { key: 'paymentStatus', header: 'Payment' },
+    { key: 'lastPayment', header: 'Last payment', render: (s) => (s.lastPayment ? `${currency(s.lastPayment.amount, s.currency)} · ${label(s.lastPayment.status)}` : '—') },
     {
       key: 'actions', header: '', align: 'right', render: (s) => (
-        s.status !== 'CANCELLED' && <Button size="sm" variant="danger" onClick={() => setCancelling(s)}>Cancel</Button>
+        canManage && ['TRIALING', 'ACTIVE', 'PAST_DUE'].includes(s.status) && (
+          <div className="flex justify-end gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setModal({ type: 'change', row: s })}>Change plan</Button>
+            {!s.cancelAtPeriodEnd && <Button size="sm" variant="danger" onClick={() => setModal({ type: 'cancel', row: s })}>Cancel</Button>}
+          </div>
+        )
       ),
     },
   ];
 
   return (
     <div>
-      <SectionHeader title="Subscriptions" breadcrumbItems={[{ label: 'Admin', to: '/admin/dashboard' }, { label: 'Subscriptions' }]} />
+      <SectionHeader
+        title="Subscriptions"
+        breadcrumbItems={[{ label: 'Admin', to: '/admin/dashboard' }, { label: 'Subscriptions' }]}
+        description="Plan subscriptions across all organizations. At most one live subscription per organization."
+        actions={canManage && <Button iconLeft={Plus} onClick={() => setModal({ type: 'assign' })}>Assign plan</Button>}
+      />
       <FilterBar
         search={search}
-        onSearchChange={(v) => { setSearch(v); setPage(1); }}
+        onSearchChange={resetPage(setSearch)}
         searchPlaceholder="Search by organization…"
-        filters={[{ key: 'status', value: status, onChange: (v) => { setStatus(v); setPage(1); }, options: STATUS_OPTIONS, placeholder: 'All statuses' }]}
+        filters={[
+          { key: 'status', value: status, onChange: resetPage(setStatus), options: STATUS_OPTIONS, placeholder: 'All statuses' },
+          ...((plans.data || []).length
+            ? [{ key: 'plan', value: planId, onChange: resetPage(setPlanId), options: plans.data.map((p) => ({ value: p.id, label: p.name })), placeholder: 'All plans' }]
+            : []),
+        ]}
       />
       <DataTable
         columns={columns}
-        rows={items}
+        rows={list.data?.data || []}
         loading={list.loading}
         error={list.error}
         onRetry={list.reload}
-        isMock={list.isMock}
-        emptyTitle="No subscriptions match these filters"
+        emptyTitle={debouncedSearch || status || planId ? 'No subscriptions match these filters' : 'No subscriptions yet'}
+        emptyHint={!debouncedSearch && !status && !planId && canManage ? 'Use “Assign plan” to put an organization on a plan.' : undefined}
         page={page}
         total={list.data?.total || 0}
         pageSize={limit}
         onPageChange={setPage}
       />
-      <ConfirmDialog
-        open={!!cancelling}
-        onClose={() => setCancelling(null)}
-        onConfirm={confirmCancel}
-        title="Cancel subscription"
-        message={cancelling ? `Cancel ${cancelling.organizationName}'s subscription?` : ''}
-        confirmLabel="Cancel subscription"
-        tone="danger"
-        loading={saving}
-      />
+      {modal?.type === 'assign' && <AssignSubscriptionModal onClose={() => setModal(null)} onSaved={done} />}
+      {modal?.type === 'change' && <ChangePlanModal subscription={modal.row} onClose={() => setModal(null)} onSaved={done} />}
+      {modal?.type === 'cancel' && <CancelSubscriptionModal subscription={modal.row} onClose={() => setModal(null)} onSaved={done} />}
     </div>
   );
 }

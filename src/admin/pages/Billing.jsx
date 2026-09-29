@@ -1,99 +1,114 @@
 import { useMemo, useState } from 'react';
-import { DollarSign, CheckCircle2, XCircle, RotateCcw } from 'lucide-react';
+import { DollarSign, Clock, XCircle, RotateCcw, Plus } from 'lucide-react';
 import { api } from '../../api';
-import { useAuth } from '../../context/useAuth';
-import { useAdminAsync } from '../lib/useAdminAsync.js';
-import { logAdminAction } from '../lib/auditLog.js';
-import { SectionHeader, StatCard, DataTable, FilterBar, StatusBadge } from '../components';
-import { Button, ConfirmDialog, useToast } from '../../components/ui';
-import { money, dateTime } from '../../lib/format';
+import { useAdminQuery } from '../lib/useAdminQuery.js';
+import { useDebounced } from '../lib/useDebounced.js';
+import { rangeParams, RANGE_SELECT_OPTIONS } from '../lib/dateRange.js';
+import { cleanParams, currency, label, shortId } from '../lib/format.js';
+import {
+  SectionHeader, StatCard, DataTable, FilterBar, StatusBadge, RecordPaymentModal, RefundPaymentModal, PaymentDetailModal,
+} from '../components';
+import { useAdminAccess } from '../rbac/AdminAccessContext.jsx';
+import { PERMISSIONS as P } from '../rbac/permissions.js';
+import { Button, Select } from '../../components/ui';
+import { dateTime, num } from '../../lib/format';
 
-const STATUS_OPTIONS = ['paid', 'open', 'failed', 'refunded'].map((s) => ({ value: s, label: s[0].toUpperCase() + s.slice(1) }));
+const STATUS_OPTIONS = ['SUCCEEDED', 'PENDING', 'FAILED', 'REFUNDED'].map((s) => ({ value: s, label: label(s) }));
+const PROVIDER_OPTIONS = ['MANUAL', 'STRIPE', 'RAZORPAY', 'PAYPAL'].map((s) => ({ value: s, label: label(s) }));
 
 export default function AdminBilling() {
-  const { user: actor } = useAuth();
-  const toast = useToast();
+  const { can } = useAdminAccess();
+  const canManage = can(P.BILLING_MANAGE);
+  const [rangeKey, setRangeKey] = useState('30d');
+  const [search, setSearch] = useState('');
   const [status, setStatus] = useState('');
+  const [provider, setProvider] = useState('');
   const [page, setPage] = useState(1);
-  const [refunding, setRefunding] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [modal, setModal] = useState(null); // { type, row? }
   const limit = 10;
+  const debouncedSearch = useDebounced(search);
+  const range = rangeParams(rangeKey);
 
-  const overview = useAdminAsync(() => api.admin.billing.overview(), []);
-  const query = useMemo(() => ({ page, limit, status: status || undefined }), [page, status]);
-  const invoices = useAdminAsync(() => api.admin.billing.invoices.list(query), [JSON.stringify(query)]);
-  const items = invoices.data?.items || [];
+  const overview = useAdminQuery((signal) => api.admin.billing.overview(range, { signal }), [rangeKey]);
+  const query = useMemo(
+    () => cleanParams({ page, limit, search: debouncedSearch.trim(), status, provider, ...range }),
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- `range` is derived from rangeKey
+    [page, debouncedSearch, status, provider, rangeKey],
+  );
+  const payments = useAdminQuery((signal) => api.admin.billing.payments.list(query, { signal }), [query]);
   const o = overview.data || {};
-
-  const refund = async () => {
-    setSaving(true);
-    try {
-      await api.admin.billing.invoices.refund(refunding.id, { amount: refunding.amount, reason: 'Refunded by admin' });
-      await logAdminAction({
-        action: 'billing.refund', entityType: 'invoice', entityId: refunding.id, organizationId: refunding.organizationId,
-        summary: `Refunded invoice ${refunding.id} (${refunding.organizationName})`, metadata: { amount: refunding.amount }, actor,
-      });
-      toast.success('Invoice refunded');
-      setRefunding(null);
-      invoices.reload();
-      overview.reload();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to refund invoice');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const stat = { loading: overview.loading, error: overview.error };
+  const resetPage = (fn) => (v) => { fn(v); setPage(1); };
+  const reloadAll = () => { setModal(null); payments.reload(); overview.reload(); };
 
   const columns = [
-    { key: 'id', header: 'Invoice' },
+    { key: 'id', header: 'Payment', render: (p) => <code className="text-xs">{shortId(p.id)}</code> },
     { key: 'organizationName', header: 'Organization' },
-    { key: 'amount', header: 'Amount', align: 'right', render: (i) => money(i.amount) },
-    { key: 'status', header: 'Status', render: (i) => <StatusBadge status={i.status} domain="invoice" /> },
-    { key: 'issuedAt', header: 'Issued', render: (i) => dateTime(i.issuedAt) },
+    { key: 'amount', header: 'Amount', align: 'right', render: (p) => currency(p.amount, p.currency) },
+    { key: 'refundedAmount', header: 'Refunded', align: 'right', render: (p) => (p.refundedAmount ? currency(p.refundedAmount, p.currency) : '—') },
+    { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} domain="payment" /> },
+    { key: 'provider', header: 'Provider', render: (p) => label(p.provider) },
+    { key: 'providerPaymentId', header: 'Reference', render: (p) => p.providerPaymentId || '—' },
+    { key: 'createdAt', header: 'Date', render: (p) => dateTime(p.paidAt || p.createdAt) },
     {
-      key: 'actions', header: '', align: 'right', render: (i) => (
-        i.status === 'paid' && <Button size="sm" variant="secondary" iconLeft={RotateCcw} onClick={() => setRefunding(i)}>Refund</Button>
+      key: 'actions', header: '', align: 'right', render: (p) => (
+        canManage && p.provider === 'MANUAL' && p.status === 'SUCCEEDED' && (
+          <Button size="sm" variant="secondary" iconLeft={RotateCcw} onClick={(e) => { e.stopPropagation(); setModal({ type: 'refund', row: p }); }}>Refund</Button>
+        )
       ),
     },
   ];
 
   return (
     <div>
-      <SectionHeader title="Billing & Payments" breadcrumbItems={[{ label: 'Admin', to: '/admin/dashboard' }, { label: 'Billing & Payments' }]} />
+      <SectionHeader
+        title="Billing & Payments"
+        breadcrumbItems={[{ label: 'Admin', to: '/admin/dashboard' }, { label: 'Billing & Payments' }]}
+        description="Payment records across all organizations. No payment provider is connected yet — payments are recorded manually."
+        actions={
+          <>
+            <div className="w-44">
+              <Select value={rangeKey} onChange={(e) => { setRangeKey(e.target.value); setPage(1); }} options={RANGE_SELECT_OPTIONS} />
+            </div>
+            {canManage && <Button iconLeft={Plus} onClick={() => setModal({ type: 'record' })}>Record payment</Button>}
+          </>
+        }
+      />
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-6">
-        <StatCard label="Total Revenue" value={money(o.totalRevenue)} icon={DollarSign} iconWrap="bg-emerald-50" iconColor="text-emerald-600" hint={`MRR ${money(o.mrr)}`} loading={overview.loading} isMock={overview.isMock} />
-        <StatCard label="Outstanding Invoices" value={o.outstandingInvoices ?? 0} icon={XCircle} iconWrap="bg-amber-50" iconColor="text-amber-600" hint="Awaiting payment" loading={overview.loading} isMock={overview.isMock} />
-        <StatCard label="Failed Payments" value={o.failedPayments ?? 0} icon={XCircle} iconWrap="bg-rose-50" iconColor="text-rose-600" hint="Needs review" loading={overview.loading} isMock={overview.isMock} />
-        <StatCard label="Refunds Issued" value={o.refundsIssued ?? 0} icon={CheckCircle2} iconWrap="bg-blue-50" iconColor="text-blue-600" hint="All time" loading={overview.loading} isMock={overview.isMock} />
+        <StatCard label="Net Revenue" value={currency(o.netRevenue ?? 0)} icon={DollarSign} iconWrap="bg-emerald-50" iconColor="text-emerald-600"
+          hint={`${num(o.successfulPayments)} payments · MRR ${currency(o.mrr ?? 0)}`} {...stat} />
+        <StatCard label="Pending Payments" value={num(o.pendingPayments)} icon={Clock} iconWrap="bg-amber-50" iconColor="text-amber-600" hint="Awaiting confirmation" {...stat} />
+        <StatCard label="Failed Payments" value={num(o.failedPayments)} icon={XCircle} iconWrap="bg-rose-50" iconColor="text-rose-600" hint="Needs review" {...stat} />
+        <StatCard label="Refunds" value={currency(o.refundedAmount ?? 0)} icon={RotateCcw} iconWrap="bg-blue-50" iconColor="text-blue-600" hint={`${num(o.refundsIssued)} refund(s) in period`} {...stat} />
       </div>
 
       <FilterBar
-        filters={[{ key: 'status', value: status, onChange: (v) => { setStatus(v); setPage(1); }, options: STATUS_OPTIONS, placeholder: 'All statuses' }]}
+        search={search}
+        onSearchChange={resetPage(setSearch)}
+        searchPlaceholder="Search by organization, reference or description…"
+        filters={[
+          { key: 'status', value: status, onChange: resetPage(setStatus), options: STATUS_OPTIONS, placeholder: 'All statuses' },
+          { key: 'provider', value: provider, onChange: resetPage(setProvider), options: PROVIDER_OPTIONS, placeholder: 'All providers' },
+        ]}
       />
       <DataTable
         columns={columns}
-        rows={items}
-        loading={invoices.loading}
-        error={invoices.error}
-        onRetry={invoices.reload}
-        isMock={invoices.isMock}
-        emptyTitle="No invoices match these filters"
+        rows={payments.data?.data || []}
+        loading={payments.loading}
+        error={payments.error}
+        onRetry={payments.reload}
+        onRowClick={(p) => setModal({ type: 'detail', row: p })}
+        emptyTitle={debouncedSearch || status || provider ? 'No payments match these filters' : 'No payments in this period'}
         page={page}
-        total={invoices.data?.total || 0}
+        total={payments.data?.total || 0}
         pageSize={limit}
         onPageChange={setPage}
       />
-      <ConfirmDialog
-        open={!!refunding}
-        onClose={() => setRefunding(null)}
-        onConfirm={refund}
-        title="Refund invoice"
-        message={refunding ? `Refund ${money(refunding.amount)} for invoice ${refunding.id}?` : ''}
-        confirmLabel="Refund"
-        tone="danger"
-        loading={saving}
-      />
+
+      {modal?.type === 'record' && <RecordPaymentModal onClose={() => setModal(null)} onSaved={reloadAll} />}
+      {modal?.type === 'refund' && <RefundPaymentModal payment={modal.row} onClose={() => setModal(null)} onSaved={reloadAll} />}
+      {modal?.type === 'detail' && <PaymentDetailModal paymentId={modal.row.id} onClose={() => setModal(null)} />}
     </div>
   );
 }

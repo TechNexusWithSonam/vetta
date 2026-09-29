@@ -1,10 +1,8 @@
-import { DemoDataBadge } from './DemoDataBadge.jsx';
-
 /**
  * KPI tile — generalizes the inline `KpiCard` pattern from `pages/Dashboard.jsx`
  * so every admin module shares one stat-tile implementation.
  */
-export function StatCard({ label, value, icon, iconWrap = 'bg-brand-50', iconColor = 'text-brand-600', hint, loading, isMock }) {
+export function StatCard({ label, value, icon, iconWrap = 'bg-brand-50', iconColor = 'text-brand-600', hint, loading, error }) {
   const Icon = icon;
   return (
     <div className="bg-white p-6 rounded-xl border border-slate-200 shadow-sm">
@@ -13,6 +11,8 @@ export function StatCard({ label, value, icon, iconWrap = 'bg-brand-50', iconCol
           <p className="text-sm font-medium text-slate-500 mb-1">{label}</p>
           {loading ? (
             <div className="h-9 w-28 rounded bg-slate-100 animate-pulse" />
+          ) : error ? (
+            <h2 className="text-3xl font-bold text-slate-300" title="Failed to load">—</h2>
           ) : (
             <h2 className="text-3xl font-bold text-slate-900 truncate">{value}</h2>
           )}
@@ -27,10 +27,7 @@ export function StatCard({ label, value, icon, iconWrap = 'bg-brand-50', iconCol
         {loading ? (
           <span className="inline-block h-4 w-32 rounded bg-slate-100 animate-pulse" />
         ) : (
-          <>
-            <span className="truncate">{hint}</span>
-            {isMock && <DemoDataBadge className="shrink-0" />}
-          </>
+          <span className={`truncate ${error ? 'text-rose-500' : ''}`}>{error ? 'Couldn’t load' : hint}</span>
         )}
       </div>
     </div>

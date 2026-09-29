@@ -1,77 +1,70 @@
 import { useState } from 'react';
+import { Plus } from 'lucide-react';
 import { api } from '../../../../api';
-import { useAuth } from '../../../../context/useAuth';
-import { useAdminAsync } from '../../../lib/useAdminAsync.js';
-import { logAdminAction } from '../../../lib/auditLog.js';
-import { DataTable, StatusBadge } from '../../../components';
-import { Button, ConfirmDialog, useToast } from '../../../../components/ui';
-import { money, dateTime } from '../../../../lib/format';
+import { useAdminQuery } from '../../../lib/useAdminQuery.js';
+import { currency, shortId } from '../../../lib/format.js';
+import { DataTable, PaymentDetailModal, RecordPaymentModal, RefundPaymentModal, StatusBadge } from '../../../components';
+import { useAdminAccess } from '../../../rbac/AdminAccessContext.jsx';
+import { PERMISSIONS as P } from '../../../rbac/permissions.js';
+import { Button } from '../../../../components/ui';
+import { dateTime } from '../../../../lib/format';
 
 export default function BillingTab({ org }) {
+  const { can } = useAdminAccess();
+  const canManage = can(P.BILLING_MANAGE);
   const [page, setPage] = useState(1);
+  const [recording, setRecording] = useState(false);
   const [refunding, setRefunding] = useState(null);
-  const [saving, setSaving] = useState(false);
+  const [openId, setOpenId] = useState(null);
   const limit = 10;
-  const list = useAdminAsync(() => api.admin.organizations.billingOf(org.id, { page, limit }), [org.id, page]);
-  const items = list.data?.items || [];
-  const toast = useToast();
-  const { user } = useAuth();
-
-  const refund = async () => {
-    setSaving(true);
-    try {
-      await api.admin.billing.invoices.refund(refunding.id, { amount: refunding.amount, reason: 'Refunded by admin' });
-      await logAdminAction({
-        action: 'billing.refund', entityType: 'invoice', entityId: refunding.id, organizationId: org.id,
-        summary: `Refunded invoice ${refunding.id} for ${org.name}`, metadata: { amount: refunding.amount }, actor: user,
-      });
-      toast.success('Invoice refunded');
-      setRefunding(null);
-      list.reload();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to refund invoice');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const list = useAdminQuery(
+    (signal) => api.admin.billing.payments.list({ organizationId: org.id, page, limit }, { signal }),
+    [org.id, page],
+  );
 
   const columns = [
-    { key: 'id', header: 'Invoice' },
-    { key: 'amount', header: 'Amount', align: 'right', render: (i) => money(i.amount) },
-    { key: 'status', header: 'Status', render: (i) => <StatusBadge status={i.status} domain="invoice" /> },
-    { key: 'issuedAt', header: 'Issued', render: (i) => dateTime(i.issuedAt) },
+    { key: 'id', header: 'Payment', render: (p) => <code className="text-xs">{shortId(p.id)}</code> },
+    { key: 'amount', header: 'Amount', align: 'right', render: (p) => currency(p.amount, p.currency) },
+    { key: 'refundedAmount', header: 'Refunded', align: 'right', render: (p) => (p.refundedAmount ? currency(p.refundedAmount, p.currency) : '—') },
+    { key: 'status', header: 'Status', render: (p) => <StatusBadge status={p.status} domain="payment" /> },
+    { key: 'provider', header: 'Provider' },
+    { key: 'paidAt', header: 'Paid', render: (p) => dateTime(p.paidAt) || '—' },
     {
-      key: 'actions', header: '', align: 'right', render: (i) => (
-        i.status === 'paid' && <Button size="sm" variant="secondary" onClick={() => setRefunding(i)}>Refund</Button>
+      key: 'actions', header: '', align: 'right', render: (p) => (
+        canManage && p.provider === 'MANUAL' && p.status === 'SUCCEEDED' && (
+          <Button size="sm" variant="secondary" onClick={(e) => { e.stopPropagation(); setRefunding(p); }}>Refund</Button>
+        )
       ),
     },
   ];
 
   return (
-    <>
+    <div className="space-y-4">
+      {canManage && (
+        <div className="flex justify-end">
+          <Button iconLeft={Plus} onClick={() => setRecording(true)}>Record payment</Button>
+        </div>
+      )}
       <DataTable
         columns={columns}
-        rows={items}
+        rows={list.data?.data || []}
         loading={list.loading}
         error={list.error}
         onRetry={list.reload}
-        isMock={list.isMock}
-        emptyTitle="No invoices for this organization"
+        onRowClick={(p) => setOpenId(p.id)}
+        emptyTitle="No payments recorded for this organization"
         page={page}
         total={list.data?.total || 0}
         pageSize={limit}
         onPageChange={setPage}
       />
-      <ConfirmDialog
-        open={!!refunding}
-        onClose={() => setRefunding(null)}
-        onConfirm={refund}
-        title="Refund invoice"
-        message={refunding ? `Refund ${money(refunding.amount)} for invoice ${refunding.id}?` : ''}
-        confirmLabel="Refund"
-        tone="danger"
-        loading={saving}
-      />
-    </>
+      {recording && (
+        <RecordPaymentModal organization={org} onClose={() => setRecording(false)} onSaved={() => { setRecording(false); list.reload(); }} />
+      )}
+      {refunding && (
+        <RefundPaymentModal payment={refunding} onClose={() => setRefunding(null)} onSaved={() => { setRefunding(null); list.reload(); }} />
+      )}
+      {openId && <PaymentDetailModal paymentId={openId} onClose={() => setOpenId(null)} />}
+    </div>
   );
 }

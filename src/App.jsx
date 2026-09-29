@@ -46,6 +46,8 @@ import NotFound from './pages/NotFound';
 
 // Super Admin panel (mounted under /admin/*) — see src/admin/README.md
 import RequireSuperAdmin from './admin/rbac/RequireSuperAdmin.jsx';
+import RequirePermission, { AdminHome } from './admin/rbac/RequirePermission.jsx';
+import { PERMISSIONS as ADMIN_P } from './admin/rbac/permissions.js';
 import AdminLogin from './admin/pages/AdminLogin.jsx';
 import AdminLayout from './admin/layout/AdminLayout.jsx';
 import AdminDashboard from './admin/pages/Dashboard.jsx';
@@ -180,22 +182,22 @@ export default function App() {
                 </RequireSuperAdmin>
               }
             >
-              <Route index element={<Navigate to="/admin/dashboard" replace />} />
-              <Route path="dashboard" element={<AdminDashboard />} />
-              <Route path="organizations" element={<OrganizationsList />} />
-              <Route path="organizations/:orgId" element={<OrganizationDetail />} />
-              <Route path="users" element={<AdminUsers />} />
-              <Route path="calls" element={<AdminCalls />} />
-              <Route path="subscriptions" element={<AdminSubscriptions />} />
-              <Route path="plans" element={<AdminPlans />} />
-              <Route path="billing" element={<AdminBilling />} />
-              <Route path="usage" element={<AdminUsage />} />
-              <Route path="cogs" element={<AdminCogs />} />
-              <Route path="analytics" element={<AdminAnalytics />} />
-              <Route path="roles" element={<AdminRolesPermissions />} />
-              <Route path="notifications" element={<AdminNotifications />} />
-              <Route path="audit-logs" element={<AdminAuditLogs />} />
-              <Route path="settings" element={<AdminSystemSettings />} />
+              <Route index element={<AdminHome />} />
+              <Route path="dashboard" element={<RequirePermission permission={ADMIN_P.DASHBOARD_VIEW}><AdminDashboard /></RequirePermission>} />
+              <Route path="organizations" element={<RequirePermission permission={ADMIN_P.ORGANIZATIONS_VIEW}><OrganizationsList /></RequirePermission>} />
+              <Route path="organizations/:orgId" element={<RequirePermission permission={ADMIN_P.ORGANIZATIONS_VIEW}><OrganizationDetail /></RequirePermission>} />
+              <Route path="users" element={<RequirePermission permission={ADMIN_P.USERS_VIEW}><AdminUsers /></RequirePermission>} />
+              <Route path="calls" element={<RequirePermission permission={ADMIN_P.CALLS_VIEW}><AdminCalls /></RequirePermission>} />
+              <Route path="subscriptions" element={<RequirePermission permission={ADMIN_P.SUBSCRIPTIONS_VIEW}><AdminSubscriptions /></RequirePermission>} />
+              <Route path="plans" element={<RequirePermission permission={ADMIN_P.PLANS_VIEW}><AdminPlans /></RequirePermission>} />
+              <Route path="billing" element={<RequirePermission permission={ADMIN_P.BILLING_VIEW}><AdminBilling /></RequirePermission>} />
+              <Route path="usage" element={<RequirePermission permission={ADMIN_P.USAGE_VIEW}><AdminUsage /></RequirePermission>} />
+              <Route path="cogs" element={<RequirePermission permission={ADMIN_P.COGS_VIEW}><AdminCogs /></RequirePermission>} />
+              <Route path="analytics" element={<RequirePermission permission={ADMIN_P.ANALYTICS_VIEW}><AdminAnalytics /></RequirePermission>} />
+              <Route path="roles" element={<RequirePermission permission={ADMIN_P.ROLES_VIEW}><AdminRolesPermissions /></RequirePermission>} />
+              <Route path="notifications" element={<RequirePermission permission={ADMIN_P.NOTIFICATIONS_VIEW}><AdminNotifications /></RequirePermission>} />
+              <Route path="audit-logs" element={<RequirePermission permission={ADMIN_P.AUDIT_LOGS_VIEW}><AdminAuditLogs /></RequirePermission>} />
+              <Route path="settings" element={<RequirePermission permission={ADMIN_P.SETTINGS_VIEW}><AdminSystemSettings /></RequirePermission>} />
             </Route>
 
             {/* Legacy redirects: /dashboard → /app/dashboard, etc. */}

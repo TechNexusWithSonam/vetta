@@ -2,7 +2,7 @@ import { NavLink, useNavigate } from 'react-router-dom';
 import { ShieldCheck, LogOut, ArrowLeft, X } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
 import { Badge } from '../../components/ui';
-import { useSuperAdmin } from '../rbac/useSuperAdmin.js';
+import { useAdminAccess } from '../rbac/AdminAccessContext.jsx';
 import { ADMIN_NAV } from './adminNav.js';
 
 const navLinkClasses = ({ isActive }) =>
@@ -21,7 +21,7 @@ const iconClasses = (isActive) => `w-5 h-5 flex-shrink-0 ${isActive ? 'text-indi
 export default function AdminSidebar({ open, onClose }) {
   const navigate = useNavigate();
   const { user, logout } = useAuth();
-  const { can } = useSuperAdmin();
+  const { can, access } = useAdminAccess();
 
   const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
   const displayName = fullName || user?.email || 'Signed in';
@@ -55,7 +55,7 @@ export default function AdminSidebar({ open, onClose }) {
             </div>
             <div>
               <h1 className="text-lg font-extrabold text-white leading-tight tracking-tight">Vetta</h1>
-              <Badge tone="brand" size="sm">Super Admin</Badge>
+              <Badge tone="brand" size="sm">{access?.isSuperAdmin ? 'Super Admin' : 'Admin'}</Badge>
             </div>
           </div>
           <button onClick={onClose} className="text-slate-400 hover:text-white lg:hidden" aria-label="Close menu">
@@ -104,7 +104,7 @@ export default function AdminSidebar({ open, onClose }) {
             </div>
             <div className="truncate flex-1">
               <p className="text-xs font-semibold text-white truncate">{displayName}</p>
-              <p className="text-[10px] text-slate-400 truncate">Super Admin</p>
+              <p className="text-[10px] text-slate-400 truncate">{access?.roleName || 'Platform admin'}</p>
             </div>
             <button
               onClick={handleLogout}

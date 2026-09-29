@@ -1,8 +1,12 @@
-import { useSuperAdmin } from './useSuperAdmin.js';
+import { useAdminAccess } from './AdminAccessContext.jsx';
 
-/** Render `children` only if the current super-admin session has `permission`. */
+/**
+ * Render `children` only if the signed-in operator holds `permission`
+ * (as reported by `GET /admin/me`). Presentation only — the API enforces
+ * the same permission on every request.
+ */
 export function Can({ permission, fallback = null, children }) {
-  const { can } = useSuperAdmin();
+  const { can } = useAdminAccess();
   return can(permission) ? children : fallback;
 }
 

@@ -1,81 +1,73 @@
 import { useState } from 'react';
-import { Gauge, PhoneCall, Cpu } from 'lucide-react';
+import { Gauge, PhoneCall, Cpu, DollarSign } from 'lucide-react';
 import { api } from '../../../../api';
-import { useAuth } from '../../../../context/useAuth';
-import { useAdminAsync } from '../../../lib/useAdminAsync.js';
-import { logAdminAction } from '../../../lib/auditLog.js';
-import { StatCard } from '../../../components';
-import { Button, Input, Modal, useToast } from '../../../../components/ui';
-import { num } from '../../../../lib/format';
+import { useAdminQuery } from '../../../lib/useAdminQuery.js';
+import { friendlyError } from '../../../lib/adminErrors.js';
+import { AdjustCreditsModal, DataTable, StatCard } from '../../../components';
+import { useAdminAccess } from '../../../rbac/AdminAccessContext.jsx';
+import { PERMISSIONS as P } from '../../../rbac/permissions.js';
+import { Badge, Button, ErrorState } from '../../../../components/ui';
+import { num, money, dateTime } from '../../../../lib/format';
 
 export default function UsageTab({ org, onOrgChanged }) {
-  const usage = useAdminAsync(() => api.admin.organizations.usageOf(org.id), [org.id]);
+  const { can } = useAdminAccess();
+  const usage = useAdminQuery((signal) => api.admin.usage.ofOrganization(org.id, { signal }), [org.id]);
   const [adjusting, setAdjusting] = useState(false);
-  const [amount, setAmount] = useState('');
-  const [saving, setSaving] = useState(false);
-  const toast = useToast();
-  const { user } = useAuth();
-
   const d = usage.data || {};
-
-  const adjustCredits = async () => {
-    setSaving(true);
-    try {
-      await api.admin.usage.credits.adjust(org.id, { amount: Number(amount), reason: 'Manual admin adjustment' });
-      await logAdminAction({
-        action: 'usage.credits_adjust', entityType: 'organization', entityId: org.id, organizationId: org.id,
-        summary: `Adjusted credits for ${org.name} by ${amount}`, metadata: { amount }, actor: user,
-      });
-      toast.success('Credits adjusted');
-      setAdjusting(false);
-      setAmount('');
-      usage.reload();
-      onOrgChanged?.();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to adjust credits');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const c = d.credits;
+  const stat = { loading: usage.loading, error: usage.error };
 
   return (
     <div className="space-y-6">
-      <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-        <StatCard label="Calls this month" value={num(d.calls)} icon={PhoneCall} iconWrap="bg-orange-50" iconColor="text-orange-600" loading={usage.loading} isMock={usage.isMock} />
-        <StatCard label="Minutes used" value={num(d.minutes)} icon={Gauge} iconWrap="bg-blue-50" iconColor="text-blue-600" loading={usage.loading} isMock={usage.isMock} />
-        <StatCard label="AI tokens" value={num(d.aiTokens)} icon={Cpu} iconWrap="bg-violet-50" iconColor="text-violet-600" loading={usage.loading} isMock={usage.isMock} />
+      {usage.error && <ErrorState error={friendlyError(usage.error)} onRetry={usage.reload} />}
+      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+        <StatCard label="Calls this period" value={num(d.calls)} icon={PhoneCall} iconWrap="bg-orange-50" iconColor="text-orange-600"
+          hint={c ? `Since ${dateTime(c.periodStart)}` : ''} {...stat} />
+        <StatCard label="Minutes used" value={num(d.minutes)} icon={Gauge} iconWrap="bg-blue-50" iconColor="text-blue-600" hint="Connected call time" {...stat} />
+        <StatCard label="AI tokens" value={num(d.aiTokens)} icon={Cpu} iconWrap="bg-violet-50" iconColor="text-violet-600" hint={`AI cost ${money(d.aiCostUsd)}`} {...stat} />
+        <StatCard label="Voice cost" value={money(d.voiceCostUsd)} icon={DollarSign} iconWrap="bg-rose-50" iconColor="text-rose-600" hint="Recorded provider cost" {...stat} />
       </div>
 
-      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <h3 className="text-sm font-semibold text-slate-800">Credits</h3>
-          <p className="text-sm text-slate-500 mt-1">
-            {num(d.creditsRemaining)} of {num(d.creditsLimit)} remaining
-            {d.highUsage && <span className="text-amber-600 font-medium"> · High usage</span>}
-          </p>
+      {c && (
+        <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 flex items-center justify-between flex-wrap gap-4">
+          <div>
+            <h3 className="text-sm font-semibold text-slate-800 flex items-center gap-2">
+              Credits (call minutes)
+              {c.highUsage && <Badge tone="warning" size="sm">High usage</Badge>}
+            </h3>
+            <p className="text-sm text-slate-500 mt-1">
+              {num(c.remaining)} of {num(c.limit)} remaining — {num(c.planIncludedMinutes)} from {d.planName || 'no plan'}
+              {c.adjustments ? `, ${c.adjustments > 0 ? '+' : ''}${num(c.adjustments)} adjusted` : ''}. Period {dateTime(c.periodStart)} – {dateTime(c.periodEnd)}.
+            </p>
+          </div>
+          {can(P.USAGE_MANAGE) && <Button variant="secondary" onClick={() => setAdjusting(true)}>Adjust credits</Button>}
         </div>
-        <Button variant="secondary" onClick={() => setAdjusting(true)}>Adjust credits</Button>
-      </div>
+      )}
 
-      <Modal
-        open={adjusting}
-        onClose={() => setAdjusting(false)}
-        title="Adjust credits"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setAdjusting(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={adjustCredits} loading={saving} disabled={!amount}>Apply</Button>
-          </>
-        }
-      >
-        <Input
-          label="Amount"
-          type="number"
-          value={amount}
-          onChange={(e) => setAmount(e.target.value)}
-          hint="Positive to add credits, negative to deduct."
+      {!usage.loading && !usage.error && (
+        <div>
+          <h3 className="text-sm font-semibold text-slate-800 mb-3">Recent adjustments</h3>
+          <DataTable
+            columns={[
+              { key: 'createdAt', header: 'When', render: (a) => dateTime(a.createdAt) },
+              { key: 'amount', header: 'Minutes', align: 'right', render: (a) => `${a.amount > 0 ? '+' : ''}${num(a.amount)}` },
+              { key: 'reason', header: 'Reason' },
+              { key: 'createdByEmail', header: 'By', render: (a) => a.createdByEmail || '—' },
+            ]}
+            rows={d.recentAdjustments || []}
+            emptyTitle="No credit adjustments yet"
+          />
+        </div>
+      )}
+
+      {adjusting && (
+        <AdjustCreditsModal
+          organizationId={org.id}
+          organizationName={org.name}
+          onClose={() => setAdjusting(false)}
+          onSaved={() => { setAdjusting(false); usage.reload(); onOrgChanged?.(); }}
         />
-      </Modal>
+      )}
     </div>
   );
 }

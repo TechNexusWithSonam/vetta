@@ -36,7 +36,7 @@ import { notifications } from './resources/notifications.js';
 import { analytics } from './resources/analytics.js';
 import { settings } from './resources/settings.js';
 import { system } from './resources/system.js';
-import { adminApi as admin } from './resources/adminIndex.js';
+import { admin } from './resources/admin.js';
 
 export const api = {
   admin,

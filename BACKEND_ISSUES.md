@@ -295,7 +295,9 @@ curl -s -i -X OPTIONS https://vetta-backend.vercel.app/auth/login \
 
 ---
 
-### 10. Super Admin panel needs a real platform role + `/admin/*` endpoints
+### 10. ~~Super Admin panel needs a real platform role + `/admin/*` endpoints~~ — RESOLVED (vetta-backend branch `feat/platform-admin-api`)
+
+> **Resolved:** vetta-backend `src/modules/platform-admin/` ships the full `/admin/*` API with server-side RBAC (`PlatformRole` + `PlatformPermissionGuard`, bootstrap via `PLATFORM_SUPER_ADMIN_EMAILS`), migration `20260928120000_add_platform_admin`, and the frontend now uses it with no mock fallback (see `src/admin/README.md`). Needs the migration deployed and `PLATFORM_SUPER_ADMIN_EMAILS` set on the server. The original report is kept below for history.
 
 The frontend now ships a Super Admin panel (`src/admin/`, mounted at `/admin/*`) for platform-level operations: organizations, users, calls, subscriptions, plans, billing, usage, COGS, analytics, roles/permissions, audit logs, and system settings. Today it is gated **client-side only** by an email allow-list (`VITE_SUPER_ADMIN_EMAILS`, see `src/admin/rbac/superAdminGate.js`) because:
 

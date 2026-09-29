@@ -1,106 +1,87 @@
 import { useState } from 'react';
 import { api } from '../../../../api';
-import { useAuth } from '../../../../context/useAuth';
-import { useAdminAsync } from '../../../lib/useAdminAsync.js';
-import { logAdminAction } from '../../../lib/auditLog.js';
-import { StatusBadge, DemoDataBadge } from '../../../components';
-import { Button, Select, Modal, ConfirmDialog, ErrorState, LoadingState, useToast } from '../../../../components/ui';
-import { money, dateTime } from '../../../../lib/format';
+import { useAdminQuery } from '../../../lib/useAdminQuery.js';
+import { friendlyError } from '../../../lib/adminErrors.js';
+import { currency, label } from '../../../lib/format.js';
+import {
+  AssignSubscriptionModal, CancelSubscriptionModal, ChangePlanModal, DataTable, DetailList, StatusBadge,
+} from '../../../components';
+import { useAdminAccess } from '../../../rbac/AdminAccessContext.jsx';
+import { PERMISSIONS as P } from '../../../rbac/permissions.js';
+import { Button, EmptyState, ErrorState } from '../../../../components/ui';
+import { dateTime } from '../../../../lib/format';
 
 export default function SubscriptionTab({ org, onOrgChanged }) {
-  const sub = useAdminAsync(() => api.admin.organizations.subscriptionOf(org.id), [org.id]);
-  const plansQ = useAdminAsync(() => api.admin.plans.list(), []);
-  const [changing, setChanging] = useState(false);
-  const [planId, setPlanId] = useState('');
-  const [cancelling, setCancelling] = useState(false);
-  const [saving, setSaving] = useState(false);
-  const toast = useToast();
-  const { user } = useAuth();
-
-  if (sub.loading || plansQ.loading) return <LoadingState label="Loading subscription…" />;
-  if (sub.error) return <ErrorState error={sub.error} onRetry={sub.reload} />;
-  const s = sub.data;
-  const plans = plansQ.data || [];
-
-  const changePlan = async () => {
-    setSaving(true);
-    try {
-      await api.admin.subscriptions.changePlan(s.id, { planId });
-      await logAdminAction({
-        action: 'subscription.plan_change', entityType: 'subscription', entityId: s.id, organizationId: org.id,
-        summary: `Changed ${org.name}'s plan`, metadata: { planId }, actor: user,
-      });
-      toast.success('Plan changed');
-      setChanging(false);
-      sub.reload();
-      onOrgChanged?.();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to change plan');
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const cancelSubscription = async () => {
-    setSaving(true);
-    try {
-      await api.admin.subscriptions.cancel(s.id, { reason: 'Cancelled by admin' });
-      await logAdminAction({
-        action: 'subscription.cancel', entityType: 'subscription', entityId: s.id, organizationId: org.id,
-        summary: `Cancelled ${org.name}'s subscription`, actor: user,
-      });
-      toast.success('Subscription cancelled');
-      setCancelling(false);
-      sub.reload();
-      onOrgChanged?.();
-    } catch (err) {
-      toast.error(err?.message || 'Failed to cancel subscription');
-    } finally {
-      setSaving(false);
-    }
-  };
+  const { can } = useAdminAccess();
+  const canManage = can(P.SUBSCRIPTIONS_MANAGE);
+  const [modal, setModal] = useState(null); // 'assign' | 'change' | 'cancel'
+  const history = useAdminQuery(
+    (signal) => api.admin.subscriptions.list({ organizationId: org.id, limit: 20 }, { signal }),
+    [org.id],
+  );
+  const s = org.subscription;
+  const done = () => { setModal(null); history.reload(); onOrgChanged?.(); };
 
   return (
-    <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
-      {sub.isMock && <DemoDataBadge />}
-      <dl className="grid grid-cols-1 sm:grid-cols-2 gap-4 text-sm">
-        <div><dt className="text-slate-400">Plan</dt><dd className="text-slate-800 font-medium">{s.planName}</dd></div>
-        <div><dt className="text-slate-400">Status</dt><dd><StatusBadge status={s.status} domain="subscription" /></dd></div>
-        <div><dt className="text-slate-400">MRR</dt><dd className="text-slate-800 font-medium">{money(s.mrr)}</dd></div>
-        <div><dt className="text-slate-400">Payment status</dt><dd className="text-slate-800 font-medium">{s.paymentStatus}</dd></div>
-        <div><dt className="text-slate-400">Started</dt><dd className="text-slate-800 font-medium">{dateTime(s.startedAt)}</dd></div>
-        <div><dt className="text-slate-400">Renews</dt><dd className="text-slate-800 font-medium">{dateTime(s.renewsAt)}</dd></div>
-      </dl>
-
-      <div className="flex gap-2">
-        <Button variant="secondary" onClick={() => { setPlanId(s.planId); setChanging(true); }}>Change plan</Button>
-        {s.status !== 'CANCELLED' && <Button variant="danger" onClick={() => setCancelling(true)}>Cancel subscription</Button>}
+    <div className="space-y-6">
+      <div className="bg-white rounded-xl border border-slate-200 shadow-sm p-6 space-y-6">
+        {!s ? (
+          <EmptyState
+            title="No live subscription"
+            hint="This organization is not on a plan."
+            action={canManage ? <Button onClick={() => setModal('assign')}>Assign plan</Button> : null}
+          />
+        ) : (
+          <>
+            <DetailList
+              columns={3}
+              items={[
+                { label: 'Plan', value: s.planName },
+                { label: 'Status', value: <StatusBadge status={s.status} domain="subscription" /> },
+                { label: 'Billing', value: `${currency(s.price, s.currency)} / ${s.billingInterval === 'ANNUAL' ? 'year' : 'month'}` },
+                { label: 'MRR', value: currency(s.mrr, s.currency) },
+                { label: 'Included minutes', value: s.includedMinutes.toLocaleString() },
+                { label: 'Provider', value: s.provider },
+                { label: 'Started', value: dateTime(s.startedAt) },
+                { label: 'Current period', value: `${dateTime(s.currentPeriodStart)} – ${dateTime(s.currentPeriodEnd)}` },
+                { label: 'Trial ends', value: dateTime(s.trialEndsAt) },
+                { label: 'Cancellation', value: s.cancelAtPeriodEnd ? 'Scheduled at period end' : null },
+                { label: 'Last payment', value: s.lastPayment ? `${currency(s.lastPayment.amount, s.currency)} · ${label(s.lastPayment.status)}` : 'None recorded' },
+              ]}
+            />
+            {canManage && (
+              <div className="flex gap-2">
+                <Button variant="secondary" onClick={() => setModal('change')}>Change plan</Button>
+                {!s.cancelAtPeriodEnd && <Button variant="danger" onClick={() => setModal('cancel')}>Cancel subscription</Button>}
+              </div>
+            )}
+          </>
+        )}
       </div>
 
-      <Modal
-        open={changing}
-        onClose={() => setChanging(false)}
-        title="Change plan"
-        footer={
-          <>
-            <Button variant="secondary" onClick={() => setChanging(false)} disabled={saving}>Cancel</Button>
-            <Button onClick={changePlan} loading={saving}>Save</Button>
-          </>
-        }
-      >
-        <Select label="Plan" value={planId} onChange={(e) => setPlanId(e.target.value)} options={plans.map((p) => ({ value: p.id, label: p.name }))} />
-      </Modal>
+      <div>
+        <h3 className="text-sm font-semibold text-slate-800 mb-3">Subscription history</h3>
+        {history.error ? (
+          <ErrorState error={friendlyError(history.error)} onRetry={history.reload} />
+        ) : (
+          <DataTable
+            columns={[
+              { key: 'planName', header: 'Plan' },
+              { key: 'billingInterval', header: 'Interval', render: (r) => label(r.billingInterval) },
+              { key: 'status', header: 'Status', render: (r) => <StatusBadge status={r.status} domain="subscription" /> },
+              { key: 'startedAt', header: 'Started', render: (r) => dateTime(r.startedAt) },
+              { key: 'cancelledAt', header: 'Cancelled', render: (r) => dateTime(r.cancelledAt) || '—' },
+            ]}
+            rows={history.data?.data || []}
+            loading={history.loading}
+            emptyTitle="No subscriptions yet"
+          />
+        )}
+      </div>
 
-      <ConfirmDialog
-        open={cancelling}
-        onClose={() => setCancelling(false)}
-        onConfirm={cancelSubscription}
-        title="Cancel subscription"
-        message={`${org.name}'s subscription will be cancelled at the end of the current billing period.`}
-        confirmLabel="Cancel subscription"
-        tone="danger"
-        loading={saving}
-      />
+      {modal === 'assign' && <AssignSubscriptionModal organization={org} onClose={() => setModal(null)} onSaved={done} />}
+      {modal === 'change' && s && <ChangePlanModal subscription={s} onClose={() => setModal(null)} onSaved={done} />}
+      {modal === 'cancel' && s && <CancelSubscriptionModal subscription={s} onClose={() => setModal(null)} onSaved={done} />}
     </div>
   );
 }

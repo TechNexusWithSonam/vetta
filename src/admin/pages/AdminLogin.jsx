@@ -2,11 +2,11 @@
  * /admin/login — dedicated Super Admin sign-in, separate from the customer
  * `/login` screen. Same backend (`POST /auth/login`, same token storage via
  * `useAuth()`), just its own page and its own post-login check: a successful
- * login only proceeds into `/admin/*` if the account is on the super-admin
- * allow-list (`src/admin/rbac/superAdminGate.js`) — otherwise it's signed
- * back out and told this account isn't authorized here.
+ * login only proceeds into `/admin/*` if the SERVER confirms platform access
+ * (`GET /admin/me`) — otherwise it's signed back out and told this account
+ * isn't authorized here. Nothing about access is decided client-side.
  */
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, Navigate, useLocation, useNavigate } from 'react-router-dom';
 import { ShieldCheck, Mail } from 'lucide-react';
 import { useAuth } from '../../context/useAuth';
@@ -14,8 +14,22 @@ import { useToast } from '../../auth/useToast.js';
 import { TextField, PasswordField, SubmitButton, FormBanner } from '../../auth/fields.jsx';
 import { isEmail } from '../../auth/validation.js';
 import { describeAuthError } from '../../auth/authErrors.js';
-import { isSuperAdmin } from '../rbac/superAdminGate.js';
+import { api } from '../../api';
 import { LoadingState } from '../../components/ui';
+import { adminErrorMessage } from '../lib/adminErrors.js';
+
+const DENIED = 'This account isn’t authorized for Super Admin access.';
+
+/** 'granted' | 'denied', or throws for transport/5xx failures. */
+async function checkPlatformAccess() {
+  try {
+    await api.admin.me();
+    return 'granted';
+  } catch (err) {
+    if (err?.statusCode === 403 || err?.statusCode === 401) return 'denied';
+    throw err;
+  }
+}
 
 export default function AdminLogin() {
   const { status, user, login, logout } = useAuth();
@@ -27,7 +41,9 @@ export default function AdminLogin() {
   const [password, setPassword] = useState('');
   const [touched, setTouched] = useState({});
   const [submitting, setSubmitting] = useState(false);
-  const [banner, setBanner] = useState(location.state?.denied ? 'This account isn’t authorized for Super Admin access.' : '');
+  const [banner, setBanner] = useState(location.state?.denied ? DENIED : '');
+  // Already signed in (and not just bounced here as denied): ask the server.
+  const [existing, setExisting] = useState('unknown'); // unknown | checking | granted | none
   const emailRef = useRef(null);
   const passwordRef = useRef(null);
 
@@ -40,11 +56,19 @@ export default function AdminLogin() {
   }, [email, password]);
   const showErr = (k) => (touched[k] ? errors[k] : undefined);
 
-  // Already signed in as an allow-listed super admin — skip straight past the form.
-  if (status === 'authenticated' && isSuperAdmin(user) && !location.state?.denied) {
+  const skipExistingCheck = !!location.state?.denied;
+  useEffect(() => {
+    if (status !== 'authenticated' || skipExistingCheck || existing !== 'unknown') return;
+    setExisting('checking');
+    checkPlatformAccess()
+      .then((r) => setExisting(r === 'granted' ? 'granted' : 'none'))
+      .catch(() => setExisting('none'));
+  }, [status, skipExistingCheck, existing, user?.id]);
+
+  if (existing === 'granted') {
     return <Navigate to={location.state?.from?.pathname || '/admin/dashboard'} replace />;
   }
-  if (status === 'loading') return <LoadingState label="Checking session…" />;
+  if (status === 'loading' || existing === 'checking') return <LoadingState label="Checking session…" />;
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -56,10 +80,18 @@ export default function AdminLogin() {
     setBanner('');
     setSubmitting(true);
     try {
-      const session = await login({ email: email.trim(), password });
-      if (!isSuperAdmin(session.user)) {
+      await login({ email: email.trim(), password });
+      let verdict;
+      try {
+        verdict = await checkPlatformAccess();
+      } catch (accessErr) {
         await logout();
-        setBanner('This account isn’t authorized for Super Admin access.');
+        setBanner(adminErrorMessage(accessErr, 'Couldn’t verify admin access. Please retry.'));
+        return;
+      }
+      if (verdict !== 'granted') {
+        await logout();
+        setBanner(DENIED);
         passwordRef.current?.focus();
         return;
       }
