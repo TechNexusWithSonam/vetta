@@ -262,7 +262,7 @@ export default function BookingModal({ open, onClose, lead, callSummary, onBooke
           {noCalendar && (
             <ErrorState
               title="No calendar connected"
-              error={{ message: 'Connect Google Calendar in Integrations before booking a meeting.' }}
+              error={{ message: 'Ask your platform admin to connect Google Calendar under Integrations before booking a meeting.' }}
             />
           )}
 

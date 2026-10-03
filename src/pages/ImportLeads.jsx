@@ -474,7 +474,7 @@ export default function ImportLeads() {
             <div className="bg-white border border-slate-200 rounded-2xl shadow-sm p-8 space-y-6">
               <h4 className="font-bold text-slate-800 text-base">Sync leads from a connected source</h4>
               <p className="text-sm text-slate-500">
-                Connect a CRM under <button className="text-indigo-600 font-semibold" onClick={() => navigate('/app/integrations')}>Integrations</button>{' '}
+                Ask your platform admin to connect a CRM under Integrations
                 to sync contacts automatically. Direct CRM pull from this screen isn&apos;t available yet — use CSV upload.
               </p>
               <div className="flex justify-end space-x-3 pt-4 border-t border-slate-100">
@@ -483,13 +483,6 @@ export default function ImportLeads() {
                   className="px-5 py-2.5 border border-slate-200 text-slate-700 font-semibold rounded-xl text-sm hover:bg-slate-50 transition-colors"
                 >
                   Cancel
-                </button>
-                <button
-                  onClick={() => navigate('/app/integrations')}
-                  className="px-6 py-2.5 bg-indigo-600 hover:bg-indigo-700 text-white font-semibold rounded-xl text-sm transition-colors shadow-sm flex items-center space-x-2"
-                >
-                  <span>Open Integrations</span>
-                  <ArrowRight size={16} />
                 </button>
               </div>
             </div>

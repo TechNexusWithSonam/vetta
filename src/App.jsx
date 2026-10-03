@@ -1,5 +1,5 @@
 import React from 'react';
-import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
+import { BrowserRouter, Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import AppLayout from './components/AppLayout';
 import RequireAuth from './components/RequireAuth';
 import RequireSession from './components/RequireSession';
@@ -39,7 +39,6 @@ import Settings from './pages/Settings';
 import Research from './pages/Research';
 import Bookings from './pages/Bookings';
 import Analytics from './pages/Analytics';
-import Integrations from './pages/Integrations';
 import LaunchCampaign from './pages/LaunchCampaign';
 import ImportLeads from './pages/ImportLeads';
 import NotFound from './pages/NotFound';
@@ -65,10 +64,12 @@ import AdminRolesPermissions from './admin/pages/RolesPermissions.jsx';
 import AdminNotifications from './admin/pages/Notifications.jsx';
 import AdminAuditLogs from './admin/pages/AuditLogs.jsx';
 import AdminSystemSettings from './admin/pages/SystemSettings.jsx';
+import AdminIntegrations from './pages/Integrations';
 
 // Old top-level app paths → their new /app/* home, so existing links/bookmarks
 // keep working. `/integrations` is intentionally absent — it now belongs to the
-// marketing site; the app's own page is `/app/integrations`.
+// marketing site; integrations are managed from the Super Admin panel at
+// `/admin/integrations`.
 const LEGACY_APP_PATHS = [
   'dashboard',
   'leads',
@@ -81,6 +82,13 @@ const LEGACY_APP_PATHS = [
   'launch-campaign',
   'import-leads',
 ];
+
+// /app/integrations moved to the Super Admin panel. Keep the query string so
+// an OAuth return like `?connected=google` still reaches the page.
+function IntegrationsMovedRedirect() {
+  const { search } = useLocation();
+  return <Navigate to={`/admin/integrations${search}`} replace />;
+}
 
 export default function App() {
   return (
@@ -167,7 +175,7 @@ export default function App() {
               <Route path="research" element={<Research />} />
               <Route path="bookings" element={<Bookings />} />
               <Route path="analytics" element={<Analytics />} />
-              <Route path="integrations" element={<Integrations />} />
+              <Route path="integrations" element={<IntegrationsMovedRedirect />} />
               <Route path="launch-campaign" element={<LaunchCampaign />} />
               <Route path="import-leads" element={<ImportLeads />} />
             </Route>
@@ -197,6 +205,7 @@ export default function App() {
               <Route path="roles" element={<RequirePermission permission={ADMIN_P.ROLES_VIEW}><AdminRolesPermissions /></RequirePermission>} />
               <Route path="notifications" element={<RequirePermission permission={ADMIN_P.NOTIFICATIONS_VIEW}><AdminNotifications /></RequirePermission>} />
               <Route path="audit-logs" element={<RequirePermission permission={ADMIN_P.AUDIT_LOGS_VIEW}><AdminAuditLogs /></RequirePermission>} />
+              <Route path="integrations" element={<RequirePermission permission={ADMIN_P.SETTINGS_VIEW}><AdminIntegrations /></RequirePermission>} />
               <Route path="settings" element={<RequirePermission permission={ADMIN_P.SETTINGS_VIEW}><AdminSystemSettings /></RequirePermission>} />
             </Route>
 

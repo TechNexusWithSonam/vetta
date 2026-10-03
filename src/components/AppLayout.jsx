@@ -8,7 +8,6 @@ import {
   Phone,
   Calendar,
   BarChart2,
-  Plug,
   Settings,
   Search,
   Upload,
@@ -152,14 +151,6 @@ export default function AppLayout() {
                 <>
                   <BarChart2 className={iconClasses({ isActive })} />
                   <span>Analytics</span>
-                </>
-              )}
-            </NavLink>
-            <NavLink to="/app/integrations" className={navLinkClasses}>
-              {({ isActive }) => (
-                <>
-                  <Plug className={iconClasses({ isActive })} />
-                  <span>Integrations</span>
                 </>
               )}
             </NavLink>
