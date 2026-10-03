@@ -143,6 +143,11 @@ export const calendar = {
       return http.put('/calendar/settings/working-hours', payload, options);
     },
 
+    /** Upcoming date-specific extra availability: `[{ id, startTime, endTime, note }]`. */
+    listExtraWindows(options) {
+      return http.get('/calendar/settings/extra-windows', options);
+    },
+
     listHolidays(options) {
       return http.get('/calendar/settings/holidays', options);
     },

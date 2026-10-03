@@ -215,7 +215,91 @@ function HolidaysCard({ orgId, holidays, canManage, onChanged }) {
   );
 }
 
-function AvailabilityEditor({ orgId, settings, onSaved, onHolidaysChanged }) {
+/** `Sat, 10 Oct · 10:00–13:00` in the org's scheduling timezone. */
+function formatWindow(w, timeZone) {
+  const day = new Intl.DateTimeFormat(undefined, { timeZone, weekday: 'short', day: 'numeric', month: 'short' });
+  const time = new Intl.DateTimeFormat(undefined, { timeZone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
+  return `${day.format(new Date(w.startTime))} · ${time.format(new Date(w.startTime))}–${time.format(new Date(w.endTime))}`;
+}
+
+function ExtraAvailabilityCard({ orgId, windows, timeZone, canManage, onChanged }) {
+  const toast = useToast();
+  const [date, setDate] = useState('');
+  const [start, setStart] = useState('10:00');
+  const [end, setEnd] = useState('13:00');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(null);
+  const invalid = !date || !start || !end || start >= end;
+
+  const add = async () => {
+    if (invalid) return;
+    setBusy('add');
+    try {
+      await api.admin.calendar.addExtraWindow(orgId, {
+        date, start, end, note: note.trim() || undefined, timezone: BROWSER_TZ,
+      });
+      setDate(''); setNote('');
+      toast.success('Extra availability added — users can book these slots now');
+      onChanged();
+    } catch (err) {
+      toast.error(adminErrorMessage(err, 'Couldn’t add extra availability'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  const remove = async (id) => {
+    setBusy(id);
+    try {
+      await api.admin.calendar.removeExtraWindow(orgId, id);
+      toast.success('Extra availability removed');
+      onChanged();
+    } catch (err) {
+      toast.error(adminErrorMessage(err, 'Couldn’t remove it'));
+    } finally {
+      setBusy(null);
+    }
+  };
+
+  return (
+    <section className="bg-white rounded-xl border border-slate-200 shadow-sm p-6">
+      <h3 className="text-sm font-semibold text-slate-800">Extra availability</h3>
+      <p className="mt-1 mb-4 text-sm text-slate-500">
+        Open extra time on a specific date, even outside the weekly hours or on a holiday. Times are in {timeZone}.
+      </p>
+      {windows.length === 0 ? (
+        <p className="text-sm text-slate-400">No extra availability added.</p>
+      ) : (
+        <ul className="divide-y divide-slate-100">
+          {windows.map((w) => (
+            <li key={w.id} className="flex items-center justify-between gap-3 py-2">
+              <div className="min-w-0">
+                <p className="text-sm font-medium text-slate-700">{formatWindow(w, timeZone)}</p>
+                {w.note && <p className="truncate text-xs text-slate-500">{w.note}</p>}
+              </div>
+              {canManage && (
+                <Button variant="ghost" size="sm" iconOnly iconLeft={Trash2} aria-label="Remove extra availability" loading={busy === w.id} onClick={() => remove(w.id)} />
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+      {canManage && (
+        <div className="mt-4 space-y-3 border-t border-slate-100 pt-4">
+          <Input label="Date" type="date" min={new Date().toLocaleDateString('en-CA')} value={date} onChange={(e) => setDate(e.target.value)} />
+          <div className="grid grid-cols-2 gap-3">
+            <Input label="From" type="time" value={start} onChange={(e) => setStart(e.target.value)} />
+            <Input label="To" type="time" value={end} onChange={(e) => setEnd(e.target.value)} error={start && end && start >= end ? 'Must be after start' : undefined} />
+          </div>
+          <Input label="Note" optional placeholder="e.g. Weekend demo slots" value={note} onChange={(e) => setNote(e.target.value)} maxLength={120} />
+          <Button size="sm" iconLeft={Plus} onClick={add} loading={busy === 'add'} disabled={invalid}>Add extra availability</Button>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function AvailabilityEditor({ orgId, settings, onSaved, onRefresh }) {
   const { can } = useAdminAccess();
   const canManage = can(P.ORGANIZATIONS_MANAGE);
   const toast = useToast();
@@ -350,14 +434,23 @@ function AvailabilityEditor({ orgId, settings, onSaved, onHolidaysChanged }) {
             onSelect={() => {}}
             reloadKey={previewKey}
             loadAvailability={loadPreview}
+            extraWindows={settings.extraWindows}
           />
         </section>
+
+        <ExtraAvailabilityCard
+          orgId={orgId}
+          windows={settings.extraWindows}
+          timeZone={settings.rule.isDefault ? BROWSER_TZ : settings.rule.timezone}
+          canManage={canManage}
+          onChanged={() => { onRefresh(); setPreviewKey((k) => k + 1); }}
+        />
 
         <HolidaysCard
           orgId={orgId}
           holidays={settings.holidays}
           canManage={canManage}
-          onChanged={() => { onHolidaysChanged(); setPreviewKey((k) => k + 1); }}
+          onChanged={() => { onRefresh(); setPreviewKey((k) => k + 1); }}
         />
       </div>
     </div>
@@ -407,7 +500,7 @@ export default function AdminCalendarAvailability() {
           settings={settings}
           onSaved={setSaved}
           // Refetch in place: a q.reload() would unmount the editor and drop unsaved hour edits.
-          onHolidaysChanged={() => api.admin.calendar.get(orgId).then(setSaved, q.reload)}
+          onRefresh={() => api.admin.calendar.get(orgId).then(setSaved, q.reload)}
         />
       ) : null}
     </div>

@@ -135,6 +135,9 @@ export const admin = {
     /** `{ name, date: 'YYYY-MM-DD', isRecurringYearly? }` */
     addHoliday: (orgId, payload) => http.post(`/admin/organizations/${orgId}/calendar/holidays`, payload),
     removeHoliday: (orgId, holidayId) => http.delete(`/admin/organizations/${orgId}/calendar/holidays/${holidayId}`),
+    /** `{ date: 'YYYY-MM-DD', start: 'HH:mm', end: 'HH:mm', note?, timezone? }` — times are in the org's scheduling timezone. */
+    addExtraWindow: (orgId, payload) => http.post(`/admin/organizations/${orgId}/calendar/extra-windows`, payload),
+    removeExtraWindow: (orgId, windowId) => http.delete(`/admin/organizations/${orgId}/calendar/extra-windows/${windowId}`),
   },
 
   settings: {

@@ -8,6 +8,7 @@ import React, { useEffect, useState } from 'react';
 import { api, ApiError } from '../../api';
 import { Modal, Button, Textarea, ErrorState, useToast } from '../ui';
 import { dateTime } from '../../lib/format';
+import { useAsync } from '../../hooks/useAsync';
 import SlotPicker from './SlotPicker';
 
 const BROWSER_TZ = Intl.DateTimeFormat().resolvedOptions().timeZone;
@@ -28,6 +29,11 @@ export default function RescheduleMeetingModal({ open, onClose, meeting, onResch
     setError('');
     setReloadKey(0);
   }, [open]);
+
+  const extraWindows = useAsync(
+    () => (open ? api.calendar.settings.listExtraWindows().catch(() => []) : Promise.resolve([])),
+    [open],
+  );
 
   const durationMinutes = meeting?.durationMinutes || 30;
 
@@ -90,6 +96,7 @@ export default function RescheduleMeetingModal({ open, onClose, meeting, onResch
             selected={selectedSlot?.start}
             onSelect={setSelectedSlot}
             reloadKey={reloadKey}
+            extraWindows={extraWindows.data}
           />
 
           <Textarea

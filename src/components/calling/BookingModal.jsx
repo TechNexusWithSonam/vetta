@@ -46,6 +46,11 @@ export default function BookingModal({ open, onClose, lead, callSummary, onBooke
     () => (open ? api.calendar.settings.getAvailabilityRule().catch(() => null) : Promise.resolve(null)),
     [open],
   );
+  // Optional quick-pick dates; a failure just hides the chips.
+  const extraWindows = useAsync(
+    () => (open ? api.calendar.settings.listExtraWindows().catch(() => []) : Promise.resolve([])),
+    [open],
+  );
 
   const connectionRows = useMemo(() => {
     const rows = Array.isArray(connections.data) ? connections.data : connections.data?.data ?? [];
@@ -317,6 +322,7 @@ export default function BookingModal({ open, onClose, lead, callSummary, onBooke
             reloadKey={reloadKey}
             maxHorizonDays={rule.data?.maxHorizonDays}
             enabled={!noCalendar}
+            extraWindows={extraWindows.data}
           />
 
           <Textarea
