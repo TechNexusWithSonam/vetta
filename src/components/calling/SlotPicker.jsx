@@ -57,6 +57,8 @@ export default function SlotPicker({
   maxHorizonDays,
   reloadKey,
   enabled = true,
+  // Swappable source (the Super Admin preview queries a chosen tenant's slots).
+  loadAvailability = api.calendar.availability,
 }) {
   const [date, setDate] = useState(todayStr());
   const { rangeStart, rangeEnd } = useMemo(() => dayBounds(date), [date]);
@@ -73,7 +75,7 @@ export default function SlotPicker({
   const availability = useAsync(
     () =>
       enabled
-        ? api.calendar.availability({
+        ? loadAvailability({
             rangeStart,
             rangeEnd,
             durationMinutes,
@@ -81,7 +83,7 @@ export default function SlotPicker({
             timezone,
           })
         : Promise.resolve([]),
-    [rangeStart, rangeEnd, durationMinutes, connectionId, timezone, reloadKey, enabled],
+    [rangeStart, rangeEnd, durationMinutes, connectionId, timezone, reloadKey, enabled, loadAvailability],
   );
 
   const slots = useMemo(() => {

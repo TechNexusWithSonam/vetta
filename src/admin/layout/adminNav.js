@@ -1,6 +1,6 @@
 import {
   LayoutDashboard, Building2, Users, Phone, Repeat, Tag, CreditCard, Gauge,
-  Receipt, BarChart2, ShieldCheck, Bell, History, Settings, Plug,
+  Receipt, BarChart2, ShieldCheck, Bell, History, Settings, Plug, CalendarClock,
 } from 'lucide-react';
 import { PERMISSIONS as P } from '../rbac/permissions.js';
 
@@ -40,6 +40,7 @@ export const ADMIN_NAV = [
       { label: 'Roles & Permissions', to: '/admin/roles', icon: ShieldCheck, permission: P.ROLES_VIEW },
       { label: 'Notifications', to: '/admin/notifications', icon: Bell, permission: P.NOTIFICATIONS_VIEW },
       { label: 'Audit Logs', to: '/admin/audit-logs', icon: History, permission: P.AUDIT_LOGS_VIEW },
+      { label: 'Calendar & Booking', to: '/admin/calendar', icon: CalendarClock, permission: P.ORGANIZATIONS_VIEW },
       { label: 'Integrations', to: '/admin/integrations', icon: Plug, permission: P.SETTINGS_VIEW },
       { label: 'System Settings', to: '/admin/settings', icon: Settings, permission: P.SETTINGS_VIEW },
     ],

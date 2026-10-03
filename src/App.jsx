@@ -65,6 +65,7 @@ import AdminNotifications from './admin/pages/Notifications.jsx';
 import AdminAuditLogs from './admin/pages/AuditLogs.jsx';
 import AdminSystemSettings from './admin/pages/SystemSettings.jsx';
 import AdminIntegrations from './pages/Integrations';
+import AdminCalendarAvailability from './admin/pages/CalendarAvailability.jsx';
 
 // Old top-level app paths → their new /app/* home, so existing links/bookmarks
 // keep working. `/integrations` is intentionally absent — it now belongs to the
@@ -206,6 +207,7 @@ export default function App() {
               <Route path="notifications" element={<RequirePermission permission={ADMIN_P.NOTIFICATIONS_VIEW}><AdminNotifications /></RequirePermission>} />
               <Route path="audit-logs" element={<RequirePermission permission={ADMIN_P.AUDIT_LOGS_VIEW}><AdminAuditLogs /></RequirePermission>} />
               <Route path="integrations" element={<RequirePermission permission={ADMIN_P.SETTINGS_VIEW}><AdminIntegrations /></RequirePermission>} />
+              <Route path="calendar" element={<RequirePermission permission={ADMIN_P.ORGANIZATIONS_VIEW}><AdminCalendarAvailability /></RequirePermission>} />
               <Route path="settings" element={<RequirePermission permission={ADMIN_P.SETTINGS_VIEW}><AdminSystemSettings /></RequirePermission>} />
             </Route>
 

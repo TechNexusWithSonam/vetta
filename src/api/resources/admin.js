@@ -124,6 +124,19 @@ export const admin = {
     entityTypes: (options) => http.get('/admin/audit-logs/entity-types', options),
   },
 
+  /** Per-tenant booking availability — the same org-default rows the tenant's booking modal reads. */
+  calendar: {
+    /** `{ organization, rule, workingHours[7], workingHoursIsDefault, holidays[], connections[] }` */
+    get: (orgId, options) => http.get(`/admin/organizations/${orgId}/calendar`, options),
+    /** `{ rule?: { timezone, slotDurationMinutes, bufferBeforeMinutes, bufferAfterMinutes, minNoticeMinutes, maxHorizonDays }, days?: [{ dayOfWeek, isActive, intervals: [{ start, end }] }] }` → fresh settings */
+    update: (orgId, payload) => http.put(`/admin/organizations/${orgId}/calendar`, payload),
+    /** Same params as `calendar.availability`; `{ connectionId, calendarConnected, slots }` */
+    availability: (orgId, params, options) => get(`/admin/organizations/${orgId}/calendar/availability`, params, options),
+    /** `{ name, date: 'YYYY-MM-DD', isRecurringYearly? }` */
+    addHoliday: (orgId, payload) => http.post(`/admin/organizations/${orgId}/calendar/holidays`, payload),
+    removeHoliday: (orgId, holidayId) => http.delete(`/admin/organizations/${orgId}/calendar/holidays/${holidayId}`),
+  },
+
   settings: {
     /** `{ general, server }` — `server` is read-only, non-secret runtime config. */
     get: (options) => http.get('/admin/settings', options),
