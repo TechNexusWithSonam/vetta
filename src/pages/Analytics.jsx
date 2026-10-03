@@ -1,193 +1,241 @@
-import React, { useState } from 'react';
-import { 
-  TrendingUp, 
-  Users, 
-  PhoneCall, 
-  Clock, 
-  Calendar,
-  BarChart2
-} from 'lucide-react';
+import React, { useMemo, useState } from 'react';
+import { Users, PhoneCall, Clock, Calendar, BarChart2 } from 'lucide-react';
+import {
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  CartesianGrid,
+  Tooltip,
+  ResponsiveContainer,
+  Cell
+} from 'recharts';
+import { api } from '../api';
+import { useAsync } from '../hooks/useAsync';
+import { ErrorState, EmptyState, Skeleton } from '../components/ui';
+import { num, pct, humanize } from '../lib/format';
+
+const TIMEFRAMES = {
+  '7d': { label: '7d', days: 7 },
+  '30d': { label: '30d', days: 30 },
+  qtd: { label: 'QTD', days: 90 }
+};
+
+function rangeParams(key) {
+  const to = new Date();
+  const from = new Date();
+  from.setDate(from.getDate() - TIMEFRAMES[key].days);
+  const iso = (d) => d.toISOString().slice(0, 10);
+  return { from: iso(from), to: iso(to), timezone: 'UTC' };
+}
+
+function KpiCard({ icon, label, value, sub }) {
+  const Icon = icon;
+  return (
+    <div className="bg-white p-5 border border-slate-200 rounded-xl shadow-sm">
+      <div className="flex items-center space-x-2 text-slate-600 mb-3">
+        <Icon size={16} />
+        <span className="text-sm font-semibold">{label}</span>
+      </div>
+      <div className="text-3xl font-bold text-slate-900 mb-2">{value}</div>
+      <div className="text-xs font-medium text-slate-400">{sub}</div>
+    </div>
+  );
+}
 
 export default function Analytics() {
   const [timeframe, setTimeframe] = useState('30d');
+  const params = useMemo(() => rangeParams(timeframe), [timeframe]);
+
+  const exec = useAsync(() => api.analytics.dashboard.executive(params), [timeframe]);
+  const voice = useAsync(() => api.analytics.dashboard.voice(params), [timeframe]);
+  const campaigns = useAsync(async () => {
+    const res = await api.campaigns.list({ page: 1, limit: 5 });
+    const rows = res?.data ?? [];
+    const withAnalytics = await Promise.all(
+      rows.map(async (c) => {
+        try {
+          const a = await api.campaigns.analytics(c.id);
+          return { ...c, analytics: a };
+        } catch {
+          return { ...c, analytics: null };
+        }
+      })
+    );
+    return withAnalytics;
+  }, []);
+
+  const d = exec.data ?? {};
+  const v = voice.data ?? {};
+  const outcomes = Array.isArray(v.outcomes) ? v.outcomes : [];
+  const outcomeData = outcomes.map((o) => ({
+    label: humanize(o.outcome || o.status || o.label || 'Unknown'),
+    count: Number(o.count ?? o.value ?? 0)
+  }));
+
+  const talkHours =
+    v.avgDurationSeconds != null && v.callsPlaced
+      ? ((v.avgDurationSeconds * v.callsPlaced) / 3600).toFixed(0)
+      : '0';
 
   return (
     <div className="h-full flex flex-col space-y-6 max-w-7xl mx-auto w-full">
-      
-      {/* Page Header */}
+      {/* Header */}
       <div className="flex justify-between items-center">
         <div>
           <h2 className="text-2xl font-bold text-slate-900">Analytics</h2>
-          <p className="text-sm text-slate-500 mt-1">Performance across campaigns, agents and time-of-day</p>
+          <p className="text-sm text-slate-500 mt-1">Performance across campaigns, calls and pipeline</p>
         </div>
         <div className="flex bg-white border border-slate-200 rounded-lg p-1 shadow-sm">
-          <button 
-            onClick={() => setTimeframe('7d')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${timeframe === '7d' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            7d
-          </button>
-          <button 
-            onClick={() => setTimeframe('30d')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${timeframe === '30d' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            30d
-          </button>
-          <button 
-            onClick={() => setTimeframe('qtd')}
-            className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${timeframe === 'qtd' ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'}`}
-          >
-            QTD
-          </button>
+          {Object.entries(TIMEFRAMES).map(([key, { label }]) => (
+            <button
+              key={key}
+              onClick={() => setTimeframe(key)}
+              className={`px-4 py-1.5 text-sm font-medium rounded-md transition-colors ${
+                timeframe === key ? 'bg-indigo-600 text-white shadow-sm' : 'text-slate-600 hover:text-slate-900'
+              }`}
+            >
+              {label}
+            </button>
+          ))}
         </div>
       </div>
 
+      {exec.error && <ErrorState error={exec.error} onRetry={exec.reload} />}
+
       <div className="flex flex-1 flex-col gap-6 min-h-0 overflow-y-auto pb-8">
-        
-        {/* Top Row: Charts & Tables */}
+        {/* Top Row */}
         <div className="flex flex-col lg:flex-row gap-6">
-          
-          {/* Heatmap Chart */}
+          {/* Call outcomes */}
           <div className="flex-[1.4] bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col">
             <div className="p-5 border-b border-slate-100 flex justify-between items-center">
               <div>
-                <h3 className="font-bold text-slate-800">Connect rate by hour</h3>
-                <p className="text-xs text-slate-500 font-medium mt-1">Best window: 10am–12pm local</p>
+                <h3 className="font-bold text-slate-800">Call outcomes</h3>
+                <p className="text-xs text-slate-500 font-medium mt-1">
+                  {num(v.callsPlaced)} calls · {pct(v.connectRate)} connect rate
+                </p>
               </div>
               <BarChart2 size={18} className="text-slate-400" />
             </div>
-            <div className="p-6 flex-1 flex flex-col justify-end">
-              <div className="flex items-end gap-2 h-48 w-full">
-                {/* Simulated Bar Chart with Brand Indigo & Orange accents */}
-                <div className="flex-1 rounded-t-md bg-indigo-50 h-[42%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-50 h-[55%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-100 h-[68%]"></div>
-                <div className="flex-1 rounded-t-md bg-gradient-to-b from-indigo-500 to-indigo-700 h-[92%] shadow-sm"></div>
-                <div className="flex-1 rounded-t-md bg-gradient-to-b from-indigo-500 to-indigo-700 h-[98%] shadow-sm"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-100 h-[74%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-100 h-[88%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-100 h-[82%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-50 h-[70%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-50 h-[58%]"></div>
-                <div className="flex-1 rounded-t-md bg-indigo-50 h-[40%]"></div>
-              </div>
-              <div className="flex justify-between text-xs text-slate-400 font-mono mt-3 pt-3 border-t border-slate-100">
-                <span>8a</span><span>9a</span><span>10a</span><span>11a</span><span>12p</span><span>1p</span><span>2p</span><span>3p</span><span>4p</span><span>5p</span><span>6p</span>
-              </div>
+            <div className="p-6 flex-1 min-h-[16rem]">
+              {voice.loading ? (
+                <Skeleton className="h-full w-full" />
+              ) : voice.error ? (
+                <ErrorState error={voice.error} onRetry={voice.reload} compact />
+              ) : outcomeData.length === 0 ? (
+                <EmptyState icon={PhoneCall} title="No call data in this window" />
+              ) : (
+                <ResponsiveContainer width="100%" height="100%">
+                  <BarChart data={outcomeData} margin={{ top: 8, right: 8, left: -20, bottom: 20 }}>
+                    <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#e2e8f0" />
+                    <XAxis
+                      dataKey="label"
+                      axisLine={false}
+                      tickLine={false}
+                      interval={0}
+                      angle={-25}
+                      textAnchor="end"
+                      tick={{ fill: '#64748b', fontSize: 11 }}
+                    />
+                    <YAxis axisLine={false} tickLine={false} allowDecimals={false} tick={{ fill: '#64748b', fontSize: 12 }} />
+                    <Tooltip
+                      contentStyle={{ borderRadius: '8px', border: 'none', boxShadow: '0 4px 6px -1px rgb(0 0 0 / 0.1)' }}
+                    />
+                    <Bar dataKey="count" radius={[4, 4, 0, 0]}>
+                      {outcomeData.map((_, i) => (
+                        <Cell key={i} fill={`rgba(99, 102, 241, ${1 - i * 0.12})`} />
+                      ))}
+                    </Bar>
+                  </BarChart>
+                </ResponsiveContainer>
+              )}
             </div>
           </div>
 
-          {/* Top Campaigns Table */}
+          {/* Top campaigns */}
           <div className="flex-1 bg-white border border-slate-200 rounded-xl shadow-sm flex flex-col">
             <div className="p-5 border-b border-slate-100">
-              <h3 className="font-bold text-slate-800">Top campaigns</h3>
+              <h3 className="font-bold text-slate-800">Campaigns</h3>
             </div>
-            <div className="overflow-x-auto">
-              <table className="w-full text-left text-sm">
-                <tbody className="divide-y divide-slate-100">
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <b className="block text-slate-800">Enterprise SaaS — Q2</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">1,240 leads</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <b className="block text-indigo-600">17.1%</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">booking rate</span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <b className="block text-slate-800">Logistics — Texas launch</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">880 leads</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <b className="block text-indigo-600">15.4%</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">booking rate</span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <b className="block text-slate-800">Healthtech — RevOps</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">1,510 leads</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <b className="block text-indigo-600">12.8%</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">booking rate</span>
-                    </td>
-                  </tr>
-                  <tr className="hover:bg-slate-50 transition-colors">
-                    <td className="p-4">
-                      <b className="block text-slate-800">Fintech — re-engage</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">1,190 leads</span>
-                    </td>
-                    <td className="p-4 text-right">
-                      <b className="block text-indigo-600">11.2%</b>
-                      <span className="text-xs text-slate-500 mt-0.5 block">booking rate</span>
-                    </td>
-                  </tr>
-                </tbody>
-              </table>
+            <div className="overflow-x-auto flex-1">
+              {campaigns.loading ? (
+                <div className="p-4 space-y-3">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <Skeleton key={i} className="h-12 w-full" />
+                  ))}
+                </div>
+              ) : campaigns.error ? (
+                <div className="p-4">
+                  <ErrorState error={campaigns.error} onRetry={campaigns.reload} compact />
+                </div>
+              ) : (campaigns.data ?? []).length === 0 ? (
+                <EmptyState icon={BarChart2} title="No campaigns yet" />
+              ) : (
+                <table className="w-full text-left text-sm">
+                  <tbody className="divide-y divide-slate-100">
+                    {(campaigns.data ?? []).map((c) => (
+                      <tr key={c.id} className="hover:bg-slate-50 transition-colors">
+                        <td className="p-4">
+                          <b className="block text-slate-800 truncate max-w-[12rem]">{c.name}</b>
+                          <span className="text-xs text-slate-500 mt-0.5 block">
+                            {num(c.analytics?.totalLeads ?? c.totalLeads)} leads · {humanize(c.status)}
+                          </span>
+                        </td>
+                        <td className="p-4 text-right">
+                          <b className="block text-indigo-600">{pct(c.analytics?.meetingRate)}</b>
+                          <span className="text-xs text-slate-500 mt-0.5 block">meeting rate</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
             </div>
           </div>
         </div>
 
-        {/* Bottom Row: Core KPIs */}
+        {/* Bottom KPIs */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
-          
-          <div className="bg-white p-5 border border-slate-200 rounded-xl shadow-sm">
-            <div className="flex items-center space-x-2 text-slate-600 mb-3">
-              <Users size={16} />
-              <span className="text-sm font-semibold">Leads processed</span>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-2">4,820</div>
-            <div className="flex items-center text-xs font-semibold text-emerald-600">
-              <TrendingUp size={14} className="mr-1" />
-              <span>▲ 18%</span>
-              <span className="text-slate-400 font-medium ml-1">MoM</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 border border-slate-200 rounded-xl shadow-sm">
-            <div className="flex items-center space-x-2 text-slate-600 mb-3">
-              <PhoneCall size={16} />
-              <span className="text-sm font-semibold">Calls dialed</span>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-2">3,940</div>
-            <div className="flex items-center text-xs font-semibold text-emerald-600">
-              <TrendingUp size={14} className="mr-1" />
-              <span>▲ 22%</span>
-              <span className="text-slate-400 font-medium ml-1">MoM</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 border border-slate-200 rounded-xl shadow-sm">
-            <div className="flex items-center space-x-2 text-slate-600 mb-3">
-              <Clock size={16} />
-              <span className="text-sm font-semibold">Talk time</span>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-2">214<span className="text-xl">h</span></div>
-            <div className="flex items-center text-xs font-semibold text-emerald-600">
-              <TrendingUp size={14} className="mr-1" />
-              <span>▲ 31%</span>
-              <span className="text-slate-400 font-medium ml-1">MoM</span>
-            </div>
-          </div>
-
-          <div className="bg-white p-5 border border-slate-200 rounded-xl shadow-sm">
-            <div className="flex items-center space-x-2 text-slate-600 mb-3">
-              <Calendar size={16} />
-              <span className="text-sm font-semibold">Meetings booked</span>
-            </div>
-            <div className="text-3xl font-bold text-slate-900 mb-2">137</div>
-            <div className="flex items-center text-xs font-semibold text-emerald-600">
-              <TrendingUp size={14} className="mr-1" />
-              <span>▲ 27%</span>
-              <span className="text-slate-400 font-medium ml-1">MoM</span>
-            </div>
-          </div>
-
+          {exec.loading ? (
+            Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-32 w-full rounded-xl" />)
+          ) : (
+            <>
+              <KpiCard
+                icon={Users}
+                label="Leads processed"
+                value={num(d.totalLeads)}
+                sub={`${num(d.leadsResearched)} researched`}
+              />
+              <KpiCard
+                icon={PhoneCall}
+                label="Calls placed"
+                value={num(d.callsPlaced)}
+                sub={`${pct(d.connectRate)} connect rate`}
+              />
+              <KpiCard
+                icon={Clock}
+                label="Talk time"
+                value={
+                  <>
+                    {talkHours}
+                    <span className="text-xl">h</span>
+                  </>
+                }
+                sub={
+                  v.avgDurationSeconds != null
+                    ? `${Math.round(v.avgDurationSeconds)}s avg / call`
+                    : 'no call data'
+                }
+              />
+              <KpiCard
+                icon={Calendar}
+                label="Meetings booked"
+                value={num(d.meetingsBooked)}
+                sub={`${pct(d.winRate)} win rate`}
+              />
+            </>
+          )}
         </div>
-
       </div>
     </div>
   );

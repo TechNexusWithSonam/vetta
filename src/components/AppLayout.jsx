@@ -1,24 +1,44 @@
 import React from 'react';
 import { NavLink, Outlet, useNavigate } from 'react-router-dom';
-import { 
-  LayoutDashboard, 
-  Users, 
-  GitBranch, 
-  BrainCircuit, 
-  Phone, 
-  Calendar, 
-  BarChart2, 
-  Plug, 
+import {
+  LayoutDashboard,
+  Users,
+  GitBranch,
+  BrainCircuit,
+  Phone,
+  Calendar,
+  BarChart2,
   Settings,
   Search,
   Upload,
   Rocket,
   Bell,
-  ShieldCheck
+  ShieldCheck,
+  LogOut
 } from 'lucide-react';
+import { useAuth } from '../context/useAuth';
 
 export default function AppLayout() {
   const navigate = useNavigate();
+  const { user, logout } = useAuth();
+
+  const fullName = [user?.firstName, user?.lastName].filter(Boolean).join(' ');
+  const displayName = fullName || user?.email || 'Signed in';
+  const initials =
+    (fullName
+      ? fullName.split(' ').map((p) => p[0]).join('')
+      : (user?.email || '?').slice(0, 2)
+    )
+      .slice(0, 2)
+      .toUpperCase();
+  const roleLabel = user?.role
+    ? `${user.role[0]}${user.role.slice(1).toLowerCase()}`
+    : 'Member';
+
+  const handleLogout = async () => {
+    await logout();
+    navigate('/login', { replace: true });
+  };
 
   // Navigation styling using the Indigo-600 brand color
   const navLinkClasses = ({ isActive }) =>
@@ -71,7 +91,7 @@ export default function AppLayout() {
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-3">
               Workspace
             </div>
-            <NavLink to="/dashboard" className={navLinkClasses}>
+            <NavLink to="/app/dashboard" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <LayoutDashboard className={iconClasses({ isActive })} />
@@ -79,7 +99,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/leads" className={navLinkClasses}>
+            <NavLink to="/app/leads" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Users className={iconClasses({ isActive })} />
@@ -87,7 +107,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/workflow" className={navLinkClasses}>
+            <NavLink to="/app/workflow" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <GitBranch className={iconClasses({ isActive })} />
@@ -95,7 +115,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/research" className={navLinkClasses}>
+            <NavLink to="/app/research" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <BrainCircuit className={iconClasses({ isActive })} />
@@ -103,7 +123,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/live-calls" className={navLinkClasses}>
+            <NavLink to="/app/live-calls" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Phone className={iconClasses({ isActive })} />
@@ -111,7 +131,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/bookings" className={navLinkClasses}>
+            <NavLink to="/app/bookings" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Calendar className={iconClasses({ isActive })} />
@@ -126,7 +146,7 @@ export default function AppLayout() {
             <div className="text-[10px] font-bold text-slate-500 uppercase tracking-widest mb-3 px-3">
               Insights
             </div>
-            <NavLink to="/analytics" className={navLinkClasses}>
+            <NavLink to="/app/analytics" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <BarChart2 className={iconClasses({ isActive })} />
@@ -134,15 +154,7 @@ export default function AppLayout() {
                 </>
               )}
             </NavLink>
-            <NavLink to="/integrations" className={navLinkClasses}>
-              {({ isActive }) => (
-                <>
-                  <Plug className={iconClasses({ isActive })} />
-                  <span>Integrations</span>
-                </>
-              )}
-            </NavLink>
-            <NavLink to="/settings" className={navLinkClasses}>
+            <NavLink to="/app/settings" className={navLinkClasses}>
               {({ isActive }) => (
                 <>
                   <Settings className={iconClasses({ isActive })} />
@@ -157,12 +169,19 @@ export default function AppLayout() {
         <div className="p-4 border-t border-slate-800">
           <div className="flex items-center space-x-3">
             <div className="w-8 h-8 rounded-full bg-indigo-100 flex items-center justify-center text-indigo-700 text-xs font-bold shrink-0 border border-indigo-200">
-              GT
+              {initials}
             </div>
-            <div className="truncate">
-              <p className="text-xs font-semibold text-white truncate">Gaurav Tripathi</p>
-              <p className="text-[10px] text-slate-400 truncate">Workspace Admin</p>
+            <div className="truncate flex-1">
+              <p className="text-xs font-semibold text-white truncate">{displayName}</p>
+              <p className="text-[10px] text-slate-400 truncate">{roleLabel}</p>
             </div>
+            <button
+              onClick={handleLogout}
+              title="Log out"
+              className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-800 hover:text-white flex items-center justify-center transition-colors shrink-0"
+            >
+              <LogOut size={15} />
+            </button>
           </div>
         </div>
       </aside>
@@ -189,7 +208,7 @@ export default function AppLayout() {
 
             {/* Import Leads Button Linked */}
             <button 
-              onClick={() => navigate('/import-leads')}
+              onClick={() => navigate('/app/import-leads')}
               className="h-[38px] px-4 bg-white border border-slate-200 hover:border-slate-300 hover:bg-slate-50 text-slate-700 text-sm font-semibold rounded-lg flex items-center space-x-2 transition-colors cursor-pointer"
             >
               <Upload size={16} />
@@ -198,7 +217,7 @@ export default function AppLayout() {
 
             {/* Launch Campaign Button Linked */}
             <button 
-              onClick={() => navigate('/launch-campaign')}
+              onClick={() => navigate('/app/launch-campaign')}
               className="h-[38px] px-4 bg-indigo-600 hover:bg-indigo-700 text-white text-sm font-semibold rounded-lg flex items-center space-x-2 transition-colors shadow-sm cursor-pointer"
             >
               <Rocket size={16} />

@@ -1,0 +1,10 @@
+export { default as Home } from './Home.jsx';
+export { default as Platform } from './Platform.jsx';
+export { default as AiResearch } from './AiResearch.jsx';
+export { default as AiCalling } from './AiCalling.jsx';
+export { default as Sequences } from './Sequences.jsx';
+export { default as MarketingIntegrations } from './Integrations.jsx';
+export { default as Pricing } from './Pricing.jsx';
+export { default as Resources } from './Resources.jsx';
+export { default as CaseStudies } from './CaseStudies.jsx';
+export { default as Contact } from './Contact.jsx';
